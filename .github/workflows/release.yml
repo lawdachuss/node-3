@@ -240,6 +240,9 @@ jobs:
             -e LOG_HTML=false \
             -e CAPTCHA_SOLVER=none \
             -e TZ=UTC \
+            -e HEADLESS=true \
+            -e BROWSER_TIMEOUT=40000 \
+            -e TEST_URL=https://www.google.com \
             ghcr.io/flaresolverr/flaresolverr:latest
           
           echo "✓ FlareSolverr container started"
@@ -248,49 +251,66 @@ jobs:
           docker logs -f flaresolverr 2>&1 | sed 's/^/[FlareSolverr] /' &
           LOGS_PID=$!
           
-          # Wait for FlareSolverr to be ready
+          # Wait for FlareSolverr to be ready with exponential backoff
           echo "Waiting for FlareSolverr API..."
-          MAX_WAIT=120  # 2 minutes max
+          MAX_WAIT=180  # 3 minutes max (FlareSolverr can take 30-60s to start)
           ELAPSED=0
+          RETRY_DELAY=3
           
           while [ $ELAPSED -lt $MAX_WAIT ]; do
             # Check if container is still running
-            if ! docker ps | grep -q flaresolverr; then
+            if ! docker ps --filter "name=flaresolverr" --filter "status=running" | grep -q flaresolverr; then
               echo "::error::FlareSolverr container stopped unexpectedly"
               docker logs flaresolverr
               exit 1
             fi
             
-            # Try to connect to the API
-            if curl -sf --max-time 5 http://127.0.0.1:8191/v1 > /dev/null 2>&1; then
-              echo "✓ FlareSolverr API ready after ${ELAPSED}s"
+            # Try to connect to the health endpoint
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8191/ 2>/dev/null || echo "000")
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✓ FlareSolverr HTTP endpoint ready after ${ELAPSED}s"
               
-              # Test with a simple request
+              # Test with a sessions.list request to verify API is functional
               TEST_RESP=$(curl -sf --max-time 10 -X POST http://127.0.0.1:8191/v1 \
                 -H "Content-Type: application/json" \
                 -d '{"cmd":"sessions.list"}' 2>&1 || echo "")
               
               if echo "$TEST_RESP" | grep -q '"status":"ok"'; then
-                echo "✓ FlareSolverr test request successful"
+                echo "✓ FlareSolverr API test successful"
+                
+                # Give it a few more seconds to fully stabilize
+                sleep 5
+                
                 kill $LOGS_PID 2>/dev/null || true
+                echo "✓ FlareSolverr is ready to use"
                 exit 0
               else
-                echo "⚠️  FlareSolverr responding but test failed, retrying..."
+                echo "⚠️  FlareSolverr responding but API test failed, waiting..."
               fi
             fi
             
-            sleep 3
-            ELAPSED=$((ELAPSED + 3))
+            sleep $RETRY_DELAY
+            ELAPSED=$((ELAPSED + RETRY_DELAY))
             
             # Show progress every 15 seconds
             if [ $((ELAPSED % 15)) -eq 0 ]; then
-              echo "  Still waiting... (${ELAPSED}s / ${MAX_WAIT}s)"
+              echo "  Still waiting... (${ELAPSED}s / ${MAX_WAIT}s) - HTTP: $HTTP_CODE"
+            fi
+            
+            # Increase delay slightly after first minute (exponential backoff)
+            if [ $ELAPSED -eq 60 ] && [ $RETRY_DELAY -eq 3 ]; then
+              RETRY_DELAY=5
+              echo "  Increasing retry delay to ${RETRY_DELAY}s"
             fi
           done
           
           echo "::error::FlareSolverr failed to start within ${MAX_WAIT}s"
+          echo "Container status:"
+          docker ps -a | grep flaresolverr || echo "Container not found"
+          echo ""
           echo "Container logs:"
-          docker logs flaresolverr
+          docker logs flaresolverr 2>&1 | tail -100
           kill $LOGS_PID 2>/dev/null || true
           exit 1
 

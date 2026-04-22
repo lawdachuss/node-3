@@ -619,7 +619,7 @@ func (ch *Channel) logUploadToDatabase(filePath, gofileLink string) error {
 	} else {
 		// File might have been deleted already, try to get size from channel state
 		ch.fileMu.RLock()
-		fileSize = ch.Filesize
+		fileSize = int64(ch.Filesize)
 		ch.fileMu.RUnlock()
 	}
 	

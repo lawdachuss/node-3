@@ -10,9 +10,18 @@ services:
       - LOG_HTML=false
       - CAPTCHA_SOLVER=none
       - TZ=UTC
+      - HEADLESS=true
+      - BROWSER_TIMEOUT=40000
+      - TEST_URL=https://www.google.com
     ports:
       - "8191:8191"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8191/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     networks:
       - recorder-network
 
@@ -29,7 +38,8 @@ services:
       - ./database:/usr/src/app/database
       - ./conf:/usr/src/app/conf
     depends_on:
-      - flaresolverr
+      flaresolverr:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - recorder-network
