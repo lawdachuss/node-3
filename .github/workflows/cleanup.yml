@@ -14,23 +14,43 @@ jobs:
     steps:
       - name: Check secrets
         run: |
-          if [ -z "${{ secrets.EC2_SSH_KEY }}" ] || [ -z "${{ secrets.EC2_HOST }}" ]; then
-            echo "❌ ERROR: GitHub secrets not configured!"
-            echo ""
-            echo "Please add these secrets to your repository:"
-            echo "1. EC2_SSH_KEY - Your EC2 private key"
-            echo "2. EC2_HOST - Your EC2 IP address (e.g., 32.193.245.111)"
-            echo ""
-            echo "See .github/GITHUB_ACTIONS_SETUP.md for instructions"
+          echo "Checking secrets configuration..."
+          
+          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "❌ ERROR: EC2_SSH_KEY secret is not set!"
             exit 1
+          else
+            echo "✅ EC2_SSH_KEY is set"
           fi
+          
+          if [ -z "${{ secrets.EC2_HOST }}" ]; then
+            echo "❌ ERROR: EC2_HOST secret is not set!"
+            exit 1
+          else
+            echo "✅ EC2_HOST is set: ${{ secrets.EC2_HOST }}"
+          fi
+          
+          echo ""
+          echo "All secrets configured correctly!"
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2-key.pem
           chmod 600 ~/.ssh/ec2-key.pem
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          
+          # Add EC2 host to known_hosts
+          EC2_HOST="${{ secrets.EC2_HOST }}"
+          if [ -z "$EC2_HOST" ]; then
+            echo "❌ ERROR: EC2_HOST secret is empty!"
+            exit 1
+          fi
+          
+          echo "Adding $EC2_HOST to known_hosts..."
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>&1 || {
+            echo "⚠️ ssh-keyscan failed, adding host key manually..."
+            ssh-keyscan "$EC2_HOST" >> ~/.ssh/known_hosts 2>&1
+          }
 
       - name: Run cleanup script
         run: |
