@@ -226,7 +226,7 @@ func (ch *Channel) Stop() {
 // to maintain a steady flow without overwhelming the FlareSolverr queue.
 func (ch *Channel) Resume(startSeq int) {
 	go func() {
-		<-time.After(time.Duration(startSeq*20) * time.Second)
+		<-time.After(time.Duration(startSeq*10) * time.Second)
 		runID, ok := ch.requestMonitorStart()
 		if !ok {
 			return
