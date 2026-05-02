@@ -42,14 +42,55 @@ jobs:
       
       - name: Create channels.json from secrets (if exists)
         run: |
+          echo "📋 Creating channels.json..."
           if [ -n "${{ secrets.CHANNELS_JSON }}" ]; then
             cat > conf/channels.json << 'EOF'
           ${{ secrets.CHANNELS_JSON }}
           EOF
+            echo "✅ channels.json created"
+            echo "📊 Channel count: $(jq '. | length' conf/channels.json)"
+            echo "📺 Active channels: $(jq '[.[] | select(.is_paused == false)] | length' conf/channels.json)"
+          else
+            echo "⚠️ CHANNELS_JSON secret not found!"
+            echo "Please add CHANNELS_JSON secret in GitHub repository settings"
+            exit 1
           fi
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      
+      - name: Start Byparr (Cloudflare bypass)
+        run: |
+          echo "🔧 Starting Byparr for Cloudflare bypass..."
+          
+          # Create docker network
+          docker network create recorder-network || true
+          
+          # Start Byparr
+          docker run -d \
+            --name byparr \
+            --network recorder-network \
+            -p 8191:8191 \
+            -e HOST=0.0.0.0 \
+            -e PORT=8191 \
+            -e TIMEOUT=180 \
+            -e LOG_LEVEL=INFO \
+            ghcr.io/thephaseless/byparr:latest
+          
+          echo "⏳ Waiting for Byparr to be ready..."
+          sleep 15
+          
+          # Check if Byparr is running
+          if docker ps | grep -q byparr; then
+            echo "✅ Byparr started successfully"
+            
+            # Test Byparr
+            curl -s http://localhost:8191/ > /dev/null && echo "✅ Byparr is responding" || echo "⚠️ Byparr not responding yet"
+          else
+            echo "⚠️ Byparr failed to start (continuing anyway)"
+            docker logs byparr || true
+          fi
+          echo ""
       
       - name: Build Docker image
         run: |
@@ -71,14 +112,20 @@ jobs:
         run: |
           echo "🚀 Starting Docker container at $(date)"
           
+          # Show what we have
+          echo "📋 Checking files:"
+          ls -la settings.json conf/channels.json 2>/dev/null || echo "Some files missing"
+          
           docker run -d \
             --name goondvr \
+            --network recorder-network \
             -p 8080:8080 \
+            -e FLARESOLVERR_URL=http://byparr:8191/v1 \
             -v $(pwd)/videos:/usr/src/app/videos \
             -v $(pwd)/database:/usr/src/app/database \
             -v $(pwd)/conf:/usr/src/app/conf \
             -v $(pwd)/settings.json:/usr/src/app/settings.json \
-            goondvr:latest --port 8080 --enable-gofile-upload
+            goondvr:latest --port 8080 --enable-gofile-upload --debug
           
           # Wait for container to start
           sleep 5
@@ -86,7 +133,12 @@ jobs:
           # Check if container is running
           if docker ps | grep -q goondvr; then
             echo "✅ Docker container started successfully"
+            echo ""
+            echo "📋 Container logs:"
             docker logs goondvr
+            echo ""
+            echo "📁 Files in container:"
+            docker exec goondvr ls -la /usr/src/app/conf/ || echo "Could not list conf directory"
           else
             echo "❌ Docker container failed to start"
             docker logs goondvr
@@ -288,8 +340,10 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          # Remove Docker container
-          docker rm -f goondvr 2>/dev/null || true
+          # Stop and remove Docker containers
+          docker stop goondvr byparr 2>/dev/null || true
+          docker rm -f goondvr byparr 2>/dev/null || true
+          docker network rm recorder-network 2>/dev/null || true
           
           echo ""
           echo "✅ Workflow completed"
