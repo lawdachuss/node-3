@@ -12,4 +12,5 @@ var (
 	ErrPaused            = errors.New("channel paused")
 	ErrStopped           = errors.New("channel stopped")
 	ErrGeoBlocked        = errors.New("stream not accessible (may be geo-blocked)")
+	ErrNotFound          = errors.New("not found (404)")
 )

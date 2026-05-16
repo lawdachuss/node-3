@@ -88,14 +88,17 @@ func fetchAPIResponse(ctx context.Context, client *internal.Req, username string
 // FetchStream retrieves the streaming data using the Chaturbate API.
 // Returns the stream, the room status string, and any error.
 func FetchStream(ctx context.Context, client *internal.Req, username string) (*Stream, string, error) {
-	resp, err := fetchAPIResponse(ctx, client, username)
+	// Try POST API first (faster, doesn't require FlareSolverr)
+	csrfToken := fmt.Sprintf("%016x%016x", time.Now().UnixNano(), time.Now().UnixNano()^0xDEADBEEF)
+	
+	body, err := internal.PostChaturbateAPI(ctx, username, csrfToken)
 	if err != nil {
 		// If Cloudflare blocked us, try FlareSolverr as fallback
 		if errors.Is(err, internal.ErrCloudflareBlocked) {
 			// Check if FLARESOLVERR_URL is configured
 			flaresolverrURL := os.Getenv("FLARESOLVERR_URL")
 			if flaresolverrURL != "" {
-				fmt.Printf("[INFO] Cloudflare blocked, trying FlareSolverr fallback for %s...\n", username)
+				fmt.Printf("[INFO] Cloudflare blocked POST API for %s, trying FlareSolverr fallback...\n", username)
 				
 				// Try FlareSolverr with extended timeout
 				attemptCtx, cancel := context.WithTimeout(ctx, 250*time.Second)
@@ -104,7 +107,7 @@ func FetchStream(ctx context.Context, client *internal.Req, username string) (*S
 				
 				if scrapeErr != nil {
 					fmt.Printf("[WARN] FlareSolverr also failed for %s: %v\n", username, scrapeErr)
-					return nil, "", fmt.Errorf("both API and FlareSolverr blocked: %w", err)
+					return nil, "", fmt.Errorf("both POST API and FlareSolverr blocked: %w", err)
 				}
 				
 				// FlareSolverr succeeded
@@ -124,7 +127,37 @@ func FetchStream(ctx context.Context, client *internal.Req, username string) (*S
 			fmt.Printf("[WARN] Cloudflare blocked %s but FLARESOLVERR_URL not configured\n", username)
 		}
 		
-		return nil, "", err
+		// Try the old GET API as final fallback
+		resp, apiErr := fetchAPIResponse(ctx, client, username)
+		if apiErr != nil {
+			return nil, "", apiErr
+		}
+		
+		// Handle room status from GET API
+		switch resp.RoomStatus {
+		case StatusPrivate:
+			return nil, resp.RoomStatus, internal.ErrPrivateStream
+		case StatusAway, StatusOffline:
+			return nil, resp.RoomStatus, internal.ErrChannelOffline
+		}
+
+		if resp.HLSSource == "" {
+			return nil, resp.RoomStatus, internal.ErrChannelOffline
+		}
+
+		// Find working edge URL (geo-blocking fallback)
+		workingURL, err := findWorkingEdgeURL(ctx, client, resp.HLSSource)
+		if err != nil {
+			return nil, resp.RoomStatus, err
+		}
+
+		return &Stream{HLSSource: workingURL}, resp.RoomStatus, nil
+	}
+
+	// Parse POST API response
+	var resp APIResponse
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		return nil, "", fmt.Errorf("failed to parse POST API response: %w", err)
 	}
 
 	// Handle room status
