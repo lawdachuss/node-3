@@ -192,18 +192,7 @@ func scanVideos() []*VideoEntry {
 func loadRecordings() *RecordingsDB {
 	empty := &RecordingsDB{Version: 2, Channels: map[string]*ChannelRecordings{}}
 
-	var dbData []byte
-
-	// Try Supabase first
-	if data := server.LoadRecordingsFromDB(); data != nil {
-		dbData = data
-	}
-
-	// Fall back to local file
-	if dbData == nil {
-		dbData = server.ReadDataFile("recordings.json")
-	}
-
+	dbData := server.LoadRecordingsFromDB()
 	if dbData == nil {
 		return empty
 	}

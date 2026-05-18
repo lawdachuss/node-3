@@ -32,7 +32,6 @@ env:
   COMPOSE_PROJECT_NAME: recorder
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
   STREAMTAPE_LOGIN: ${{ secrets.STREAMTAPE_LOGIN }}
   STREAMTAPE_API_KEY: ${{ secrets.STREAMTAPE_API_KEY }}
   VOESX_API_KEY: ${{ secrets.VOESX_API_KEY }}
@@ -60,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p videos conf database emergency-backup
+          mkdir -p videos database emergency-backup
 
           # .env is required by docker-compose.yml but not in git (secrets)
           # Secrets are passed via job-level env vars; .env just needs to exist
@@ -104,31 +103,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The app_settings table is required by the Go code's Supabase REST API
-          # fallback for persisting channels, recordings, settings, and tunnel URL.
-          # Try to create it if it doesn't exist (idempotent).
-          SQL="CREATE TABLE IF NOT EXISTS app_settings (
-            key TEXT PRIMARY KEY,
-            value JSONB NOT NULL DEFAULT '{}',
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-          );"
-
-          # Use Supabase REST API to run SQL via pg_dump or similar isn't possible,
-          # but the Go code's migrate() function handles table creation when
-          # DATABASE_URL is set. For REST-only mode, we check if the table exists
-          # by querying it.
-          TABLE_EXISTS=$(curl -sS --max-time 10 \
-            "${SUPABASE_URL}/rest/v1/app_settings?key=eq._dummy_check_&select=key" \
+          # The app_settings table is required by the Go code (stored via REST API).
+          # We check if it's accessible and warn if not.
+          HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+            "${SUPABASE_URL}/rest/v1/app_settings?key=eq.__healthcheck__&select=key&limit=1" \
             -H "apikey: ${SUPABASE_API_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_API_KEY}" 2>/dev/null | grep -c 'key' || true)
+            -H "Authorization: Bearer ${SUPABASE_API_KEY}" 2>/dev/null || echo "000")
 
-          if [[ "$TABLE_EXISTS" -gt 0 ]] 2>/dev/null; then
-            echo "app_settings table is accessible via REST API."
-          else
-            echo "WARNING: app_settings table may not be accessible."
-            echo "If persistence via REST API fails, ensure the table exists and RLS allows anon access."
-            echo "Run the SQL migrations in supabase/migrations/ manually if needed."
-          fi
+          case "$HTTP_CODE" in
+            200) echo "app_settings table is accessible via REST API." ;;
+            404) echo "WARNING: app_settings table not found (HTTP 404)."
+                 echo "Run supabase/migrations/000_complete_setup_all_tables.sql in your Supabase SQL editor." ;;
+            401|403) echo "WARNING: authentication failed (HTTP $HTTP_CODE). Check SUPABASE_API_KEY." ;;
+            *)   echo "WARNING: unexpected response (HTTP $HTTP_CODE)." ;;
+          esac
 
       - name: Start containers
         shell: bash
@@ -300,7 +288,7 @@ jobs:
             echo "WARNING: Tunnel URL not verified as reachable (last status: $status) — recording still works locally"
           fi
 
-          # Save tunnel URL to both Supabase REST API and local file
+          # Save tunnel URL to Supabase
           curl -fsS -X POST "${SUPABASE_URL}/rest/v1/tunnel_sessions" \
             -H "apikey: ${SUPABASE_API_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_API_KEY}" \
@@ -309,7 +297,7 @@ jobs:
             -d "{\"run_id\": ${GITHUB_RUN_NUMBER}, \"url\": \"${tunnel_url}\", \"started_at\": \"$(date -u +%FT%TZ)\", \"is_active\": true}" \
             2>/dev/null || echo "Could not save tunnel URL to Supabase tunnel_sessions table."
 
-          # Also persist to the app_settings table (used by the Go code fallback)
+          # Also persist to the app_settings table (read by the Go code at runtime)
           curl -fsS -X POST "${SUPABASE_URL}/rest/v1/app_settings" \
             -H "apikey: ${SUPABASE_API_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_API_KEY}" \
@@ -406,44 +394,21 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      - name: Persist data to repository
-        # Always persist, even on cancellation. The !cancelled() guard was removed
-        # because losing channel config between runs is worse than a failed commit.
-        # The git push may fail if the remote has diverged (another concurrent run),
-        # but data files on disk are still current for the next run's checkout.
+      - name: Persist run timestamp to repository
+        # All data (channels, settings, recordings, tunnel) is stored in Supabase.
+        # This step just tracks that the run completed so the next run can detect gaps.
         if: always() && steps.config.outputs.valid == 'true'
         shell: bash
         run: |
           set -euo pipefail
 
-          # The conf/ and database/ directories are bind-mounted volumes, so files
-          # written inside the container are immediately available on the host.
-          # These cp commands are explicit safety copies in case the mount behaves
-          # unexpectedly on the GitHub Actions runner.
-          echo "Copying data from container volumes..."
-
-          docker compose cp chaturbate-dvr:/usr/src/app/conf/channels.json conf/channels.json 2>/dev/null || echo "  (no channels.json — first run?)"
-          docker compose cp chaturbate-dvr:/database/settings.json database/settings.json 2>/dev/null || echo "  (no settings.json)"
-          docker compose cp chaturbate-dvr:/database/recordings.json database/recordings.json 2>/dev/null || echo "  (no recordings.json)"
-          docker compose cp chaturbate-dvr:/database/tunnel.json database/tunnel.json 2>/dev/null || echo "  (no tunnel.json)"
-
-          # Verify local files exist
-          echo "=== Local data files ==="
-          ls -la conf/channels.json database/settings.json database/recordings.json database/tunnel.json 2>/dev/null || echo "Some data files are missing (expected on first run)"
-
-          # Commit changes back to repo
-          git add conf/channels.json database/settings.json database/recordings.json database/tunnel.json
+          echo "${GITHUB_RUN_ID} $(date -u +%FT%TZ)" > last-run.txt
+          git add last-run.txt
           if git diff --cached --quiet; then
-            echo "No data changes to commit"
+            echo "No change to last-run.txt"
           else
-            git -c user.name="recorder-bot" -c user.email="recorder@github" commit -m "chore: persist recorder data [run ${GITHUB_RUN_NUMBER}]"
-            # Push may fail if another run committed first — that's OK, our local
-            # data is still on disk for the next run.
-            if git push; then
-              echo "Data committed and pushed"
-            else
-              echo "WARNING: git push failed (likely race with another run). Local data files are up to date."
-            fi
+            git -c user.name="recorder-bot" -c user.email="recorder@github" commit -m "chore: record run ${GITHUB_RUN_NUMBER}"
+            git push 2>/dev/null || echo "WARNING: git push failed (race with another run)"
           fi
 
       - name: Queue next run

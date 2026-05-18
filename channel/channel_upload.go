@@ -40,21 +40,12 @@ type recDB struct {
 func loadRecDB() *recDB {
 	empty := &recDB{Version: 2, Channels: map[string]*recChannelData{}}
 
-	// Try Supabase first
-	if dbData := server.LoadRecordingsFromDB(); dbData != nil {
-		var db recDB
-		if err := json.Unmarshal(dbData, &db); err == nil {
-			return &db
-		}
-	}
-
-	// Fall back to local file
-	data, err := os.ReadFile(server.DataPath("recordings.json"))
-	if err != nil {
+	dbData := server.LoadRecordingsFromDB()
+	if dbData == nil {
 		return empty
 	}
 	var db recDB
-	if err := json.Unmarshal(data, &db); err != nil {
+	if err := json.Unmarshal(dbData, &db); err != nil {
 		return empty
 	}
 	return &db
@@ -66,12 +57,6 @@ func saveRecDB(db *recDB) {
 		return
 	}
 
-	// Write to local file (best-effort)
-	if err := server.WriteDataFile("recordings.json", data); err != nil {
-		fmt.Printf("[WARN] [db] could not save recordings to local file: %v\n", err)
-	}
-
-	// Save to Supabase (best-effort)
 	if err := server.SaveRecordingsToDB(data); err != nil {
 		fmt.Printf("[WARN] [db] could not save recordings to Supabase: %v\n", err)
 	}

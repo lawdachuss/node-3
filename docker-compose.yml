@@ -57,7 +57,6 @@
       - .env
     environment:
       - FLARESOLVERR_URL=http://byparr-lb/v1
-      - DATA_DIR=/database
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_API_KEY=${SUPABASE_API_KEY:-}
       - VOESX_API_KEY=${VOESX_API_KEY:-}
@@ -74,7 +73,6 @@
       - "8080:8080"
     volumes:
       - ./videos:/usr/src/app/videos
-      - ./conf:/usr/src/app/conf
       - ./database:/database
     depends_on:
       byparr-lb:

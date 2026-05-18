@@ -41,7 +41,7 @@ func New() (*Manager, error) {
         }, nil
 }
 
-// SaveConfig saves the current channels to channels.json and to PostgreSQL.
+// SaveConfig saves the current channels to Supabase.
 func (m *Manager) SaveConfig() error {
 	var config []*entity.ChannelConfig
 
@@ -105,17 +105,12 @@ func (m *Manager) refreshCookiesOnce() bool {
         return true
 }
 
-// LoadConfig loads the channels from JSON (or PostgreSQL fallback) and starts them.
+// LoadConfig loads the channels from Supabase and starts them.
 // All channels are automatically resumed on startup, regardless of their paused state.
 func (m *Manager) LoadConfig() error {
 	// Restore persisted cookies/user-agent before starting channels
 	if err := server.LoadSettings(); err != nil {
 		fmt.Printf("[WARN] could not load settings: %v\n", err)
-	}
-
-	// Connect to database (non-fatal if unavailable)
-	if err := server.InitDB(); err != nil {
-		fmt.Printf("[WARN] [db] could not connect to database: %v\n", err)
 	}
 
 	// Load channels from Supabase

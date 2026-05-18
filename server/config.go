@@ -17,8 +17,7 @@ type persistedSettings struct {
 	ByparrURL string `json:"byparr_url"`
 }
 
-// SaveSettings writes the runtime cookies and user-agent to Supabase
-// and to a local JSON file as fallback.
+// SaveSettings writes the runtime cookies and user-agent to Supabase.
 func SaveSettings() error {
 	configMu.RLock()
 	s := persistedSettings{
@@ -33,34 +32,15 @@ func SaveSettings() error {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
 
-	// Write to local file (best-effort)
-	if err := WriteDataFile("settings.json", b); err != nil {
-		fmt.Printf("[WARN] could not save settings to local file: %v\n", err)
-	}
-
-	// Write to Supabase (best-effort)
 	if err := SaveSettingsToDB(b); err != nil {
-		fmt.Printf("[WARN] could not save settings to Supabase: %v\n", err)
+		return fmt.Errorf("save settings to Supabase: %w", err)
 	}
-
 	return nil
 }
 
-// LoadSettings reads persisted cookies and user-agent from Supabase first,
-// then falls back to the local JSON file.
+// LoadSettings reads persisted cookies and user-agent from Supabase.
 func LoadSettings() error {
-	var b []byte
-
-	// Try Supabase first
-	if dbData := LoadSettingsFromDB(); dbData != nil {
-		b = dbData
-	}
-
-	// Fall back to local file
-	if b == nil {
-		b = ReadDataFile("settings.json")
-	}
-
+	b := LoadSettingsFromDB()
 	if b == nil {
 		return nil
 	}
