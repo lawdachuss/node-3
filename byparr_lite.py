@@ -27,6 +27,22 @@ CHROMIUM_LOCK = Lock()
 SYSTEM_CHROMIUM = shutil.which("chromium") or shutil.which("chromium-browser")
 
 
+def _get_proxy_config() -> dict | None:
+    """Return Playwright proxy config from env vars, or None if no proxy is set."""
+    proxy_url = os.environ.get("PROXY_URL") or os.environ.get("PROXY_SERVER") or ""
+    if not proxy_url:
+        return None
+    proxy_user = os.environ.get("PROXY_USERNAME", "")
+    proxy_pass = os.environ.get("PROXY_PASSWORD", "")
+    cfg: dict = {"server": proxy_url}
+    if proxy_user:
+        cfg["username"] = proxy_user
+    if proxy_pass:
+        cfg["password"] = proxy_pass
+    print(f"[byparr-lite] Using proxy: {proxy_url}", flush=True)
+    return cfg
+
+
 def _launch_browser(p, max_timeout_ms: int):
     """Launch Chromium, using system binary if available, else Playwright's bundled one."""
     launch_kwargs = {
@@ -47,16 +63,20 @@ def solve_cloudflare(url: str, max_timeout_ms: int = 120000) -> tuple:
     from playwright.sync_api import sync_playwright
 
     deadline = time.time() + (max_timeout_ms / 1000)
+    proxy_cfg = _get_proxy_config()
     with CHROMIUM_LOCK:
         with sync_playwright() as p:
             browser = _launch_browser(p, max_timeout_ms)
-            context = browser.new_context(
-                user_agent=(
+            ctx_kwargs = {
+                "user_agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/131.0.0.0 Safari/537.36"
-                )
-            )
+                ),
+            }
+            if proxy_cfg:
+                ctx_kwargs["proxy"] = proxy_cfg
+            context = browser.new_context(**ctx_kwargs)
             page = context.new_page()
 
             # Use wait_until="commit" so we get the HTTP response immediately

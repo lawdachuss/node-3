@@ -150,8 +150,11 @@ func (m *Manager) LoadConfig() error {
 		fmt.Println("[WARN] channels are running but state changes will be lost if the container restarts")
 	}
 
-	// Generate thumbnails for any existing videos that don't have one yet
-	go m.ScanThumbnails()
+	// Clean up orphaned sidecar files from previous interrupted runs
+	go func() {
+		channel.CleanupOrphanedFiles()
+		m.ScanThumbnails()
+	}()
 
         return nil
 }

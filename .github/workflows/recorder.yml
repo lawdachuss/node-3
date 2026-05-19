@@ -123,31 +123,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Starting Byparr + nginx first..."
-          docker compose up -d --scale byparr=2 byparr byparr-lb
+          echo "Starting Byparr..."
+          docker compose up -d byparr
 
           echo "=== Container status after byparr start ==="
           docker compose ps -a
 
-          echo "Waiting for Byparr load balancer..."
-          for attempt in {1..30}; do
-            if curl -fsS --max-time 5 http://localhost:8191/health >/dev/null 2>/dev/null; then
-              echo "Byparr load balancer is up"
-              break
-            fi
-            if (( attempt == 30 )); then
-              echo "Byparr LB did not start in time"
-              docker compose ps -a
-              docker compose logs --tail=20 byparr-lb || true
-              exit 1
-            fi
-            sleep 4
-          done
-
-          echo "Waiting for Byparr backend to be ready..."
+          echo "Waiting for Byparr to be ready..."
           for attempt in {1..45}; do
-            if curl -fsS --max-time 10 http://localhost:8191/backend-health >/dev/null 2>/dev/null; then
-              echo "Byparr backend is healthy"
+            if curl -fsS --max-time 10 http://localhost:8191/ >/dev/null 2>/dev/null; then
+              echo "Byparr is healthy"
               break
             fi
             if (( attempt == 45 )); then
@@ -359,6 +344,11 @@ jobs:
                 sleep 2
               done
             fi
+
+            # Dump recent Docker logs every loop so GitHub Actions shows them
+            echo "=== docker compose logs (last 50 lines) ==="
+            docker compose logs --tail=50 chaturbate-dvr 2>/dev/null || true
+            echo "=== end docker logs ==="
 
             # Check if channel processes are alive inside the container
             if curl -fsS --max-time 5 "$APP_URL" >/dev/null 2>/dev/null; then

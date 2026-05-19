@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/teacat/chaturbate-dvr/server"
+	"github.com/teacat/chaturbate-dvr/uploader"
 )
 
 type Pattern struct {
@@ -103,6 +106,7 @@ func (ch *Channel) Cleanup(isRotation bool) error {
 	}
 
 	ch.processPendingQueue()
+	CleanupOrphanedFiles()
 	return nil
 }
 
@@ -421,6 +425,235 @@ func closeTrackedFile(file *os.File) (string, os.FileInfo, error) {
 	}
 
 	return filename, fileInfo, nil
+}
+
+// CleanupOrphanedFiles processes orphaned sidecar files left behind by
+// cancelled or crashed post-processing runs. Instead of deleting them,
+// it runs them through the full pipeline: mux (if split A/V), generate
+// thumbnails, upload to hosts, save metadata to Supabase, then delete.
+func CleanupOrphanedFiles() {
+	if server.Config == nil {
+		return
+	}
+
+	dirs := []string{"videos"}
+	if server.Config.OutputDir != "" {
+		dirs = append(dirs, server.Config.OutputDir)
+	}
+
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+
+		// Classify files by type
+		type fileInfo struct {
+			path string
+			name string
+		}
+		mainVideos := map[string]fileInfo{} // stem -> info
+		muxedFiles := map[string]fileInfo{} // stem -> info
+		videoParts := map[string]fileInfo{} // stem -> info (.video.mp4)
+		audioParts := map[string]fileInfo{} // stem -> info (.audio.mp4)
+
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			path := filepath.Join(dir, name)
+			ext := strings.ToLower(filepath.Ext(name))
+
+			switch {
+			case strings.HasSuffix(name, ".video.muxed.mp4"):
+				stem := strings.TrimSuffix(name, ".video.muxed.mp4")
+				muxedFiles[stem] = fileInfo{path, name}
+			case strings.HasSuffix(name, ".video.mp4"):
+				stem := strings.TrimSuffix(name, ".video.mp4")
+				videoParts[stem] = fileInfo{path, name}
+			case strings.HasSuffix(name, ".audio.mp4"):
+				stem := strings.TrimSuffix(name, ".audio.mp4")
+				audioParts[stem] = fileInfo{path, name}
+			case (ext == ".mp4" || ext == ".mkv" || ext == ".ts") &&
+				!strings.Contains(name, ".video.") &&
+				!strings.Contains(name, ".audio.") &&
+				!strings.Contains(name, ".muxed."):
+				stem := strings.TrimSuffix(name, filepath.Ext(name))
+				mainVideos[stem] = fileInfo{path, name}
+			}
+		}
+
+		// Process orphaned muxed files (output from a mux that was never uploaded)
+		for stem, info := range muxedFiles {
+			if _, hasMain := mainVideos[stem]; hasMain {
+				continue
+			}
+			log.Printf("recovery: processing orphaned muxed file %s", info.name)
+			thumbURL, spriteURL := GenerateThumbnailForFile(info.path)
+			uploadOrphanedFile(info.path, thumbURL, spriteURL)
+			deleteSidecarFiles(info.path)
+		}
+
+		// Process orphaned split A/V pairs (mux them first, then upload)
+		for stem, vInfo := range videoParts {
+			if _, hasMain := mainVideos[stem]; hasMain {
+				continue
+			}
+			aInfo, hasAudio := audioParts[stem]
+			if !hasAudio {
+				continue
+			}
+
+			// Mux the pair
+			muxedPath := filepath.Join(dir, stem+".video.muxed.mp4")
+			log.Printf("recovery: muxing orphaned split A/V pair %s", stem)
+			if err := muxVideoAudio(vInfo.path, aInfo.path, muxedPath); err != nil {
+				log.Printf("recovery: mux failed for %s: %v — uploading video-only", stem, err)
+				// Fall back to uploading just the video track
+				thumbURL, spriteURL := GenerateThumbnailForFile(vInfo.path)
+				uploadOrphanedFile(vInfo.path, thumbURL, spriteURL)
+				deleteSidecarFiles(vInfo.path)
+				continue
+			}
+
+			// Delete source sidecars
+			os.Remove(vInfo.path)
+			os.Remove(aInfo.path)
+
+			// Generate thumbnails, upload, and clean up
+			thumbURL, spriteURL := GenerateThumbnailForFile(muxedPath)
+			uploadOrphanedFile(muxedPath, thumbURL, spriteURL)
+			deleteSidecarFiles(muxedPath)
+			os.Remove(muxedPath)
+		}
+
+		// Clean up orphaned sidecar files whose main video no longer exists
+		sidecarExts := []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			path := filepath.Join(dir, name)
+			for _, suffix := range sidecarExts {
+				if !strings.HasSuffix(name, suffix) {
+					continue
+				}
+				base := strings.TrimSuffix(name, suffix)
+				hasMain := false
+				for ext := range map[string]bool{".mp4": true, ".mkv": true, ".ts": true} {
+					if _, ok := mainVideos[base+ext]; ok {
+						hasMain = true
+						break
+					}
+				}
+				if !hasMain {
+					os.Remove(path)
+				}
+				break
+			}
+		}
+	}
+}
+
+// deleteSidecarFiles removes preview sidecar files associated with a video path.
+func deleteSidecarFiles(videoPath string) {
+	for _, suffix := range []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"} {
+		os.Remove(videoPath + suffix)
+	}
+}
+
+// muxVideoAudio combines a separate video and audio file into a single MP4.
+func muxVideoAudio(videoPath, audioPath, outputPath string) error {
+	cmd := exec.Command("ffmpeg", "-y",
+		"-i", videoPath,
+		"-i", audioPath,
+		"-c", "copy",
+		"-movflags", "+faststart",
+		outputPath,
+	)
+	return cmd.Run()
+}
+
+// uploadOrphanedFile uploads a file to all configured hosts and saves metadata
+// to Supabase. Unlike Channel.uploadFile, this doesn't require an active channel.
+// Username is extracted from the filename; metadata fields are left empty.
+func uploadOrphanedFile(filePath, thumbURL, spriteURL string) bool {
+	cfg := server.Config
+	if cfg == nil {
+		return false
+	}
+
+	filename := filepath.Base(filePath)
+	log.Printf("recovery: uploading %s", filename)
+
+	// Save preview links first
+	if thumbURL != "" || spriteURL != "" {
+		if err := server.SavePreviewLinks(filename, thumbURL, spriteURL); err != nil {
+			log.Printf("recovery: could not save preview links for %s: %v", filename, err)
+		}
+	}
+
+	// Upload to all configured hosts
+	upl := uploader.NewMultiHostUploader(
+		cfg.TurboViPlayAPIKey,
+		cfg.VoeSXAPIKey,
+		cfg.StreamtapeLogin,
+		cfg.StreamtapeAPIKey,
+		cfg.SendCMAPIKey,
+		cfg.ByseAPIKey,
+		nil, // no logger for orphan recovery
+	)
+
+	results := upl.UploadToAll(filePath)
+	success := uploader.GetSuccessfulUploads(results)
+	log.Printf("recovery: upload finished — %d/%d successful for %s", len(success), len(results), filename)
+
+	if len(success) == 0 {
+		return false
+	}
+
+	// Build links map
+	links := map[string]string{}
+	var embedURL string
+	for _, r := range success {
+		links[r.Host] = r.DownloadLink
+		if embedURL == "" {
+			embedURL = embedURLFromLink(r.Host, r.DownloadLink)
+		}
+	}
+
+	// Extract username from filename (format: username_YYYY-MM-DD_HH-MM-SS)
+	username := ""
+	if idx := strings.Index(filename, "_20"); idx > 0 {
+		username = filename[:idx]
+	}
+
+	stat, _ := os.Stat(filePath)
+	var filesize int64
+	if stat != nil {
+		filesize = stat.Size()
+	}
+
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	if err := server.SaveRecordingWithLinks(
+		username, filename, timestamp,
+		"", nil, 0, "", 0, filesize, "", embedURL, links,
+	); err != nil {
+		log.Printf("recovery: failed to save recording to Supabase: %v", err)
+	} else {
+		log.Printf("recovery: saved recording metadata for %s", filename)
+	}
+
+	// Delete local file after successful upload + DB save
+	if cfg.DeleteLocalAfterUpload {
+		os.Remove(filePath)
+		deleteSidecarFiles(filePath)
+		log.Printf("recovery: removed local file %s", filename)
+	}
+
+	return true
 }
 
 // ShouldSwitchFile determines whether a new file should be created.

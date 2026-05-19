@@ -130,6 +130,10 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL string) bool 
 		// losing the file when Supabase is down or returns an error.
 		if server.Config != nil && server.Config.DeleteLocalAfterUpload && dbSaved {
 			_ = os.Remove(filePath)
+			// Also clean up any associated preview sidecar files
+			for _, suffix := range []string{".thumb.jpg", ".sprite.jpg", ".thumb", ".sprite"} {
+				_ = os.Remove(filePath + suffix)
+			}
 			ch.Info("upload: removed local file for %s", filename)
 		}
 	}
