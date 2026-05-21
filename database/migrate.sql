@@ -343,6 +343,11 @@ ON CONFLICT (key) DO NOTHING;
 -- PERMISSIONS
 -- ============================================================================
 
+-- Grant schema-level access to anon role
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT CREATE ON SCHEMA public TO anon;
+
+-- Grant table-level access
 GRANT ALL ON public.channels TO anon;
 GRANT ALL ON public.recordings TO anon;
 GRANT ALL ON public.upload_links TO anon;
@@ -354,9 +359,28 @@ GRANT ALL ON public.recording_sessions TO anon;
 GRANT ALL ON public.preview_images TO anon;
 GRANT ALL ON public.disk_usage TO anon;
 
+-- Transfer ownership to anon (bypasses RLS for the service role, ensures anon can write)
+ALTER TABLE public.channels OWNER TO anon;
+ALTER TABLE public.recordings OWNER TO anon;
+ALTER TABLE public.upload_links OWNER TO anon;
+ALTER TABLE public.app_settings OWNER TO anon;
+ALTER TABLE public.tunnels OWNER TO anon;
+ALTER TABLE public.tunnel_sessions OWNER TO anon;
+ALTER TABLE public.channel_logs OWNER TO anon;
+ALTER TABLE public.recording_sessions OWNER TO anon;
+ALTER TABLE public.preview_images OWNER TO anon;
+ALTER TABLE public.disk_usage OWNER TO anon;
+
+-- Grant sequence usage for auto-increment UUIDs
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon;
+
+-- Grant view access
 GRANT SELECT ON public.recordings_with_links TO anon;
 GRANT SELECT ON public.channel_statistics TO anon;
 GRANT SELECT ON public.recent_activity TO anon;
+ALTER VIEW public.recordings_with_links OWNER TO anon;
+ALTER VIEW public.channel_statistics OWNER TO anon;
+ALTER VIEW public.recent_activity OWNER TO anon;
 
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon;
 
