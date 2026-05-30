@@ -4,6 +4,7 @@ import (
         "context"
         "errors"
         "fmt"
+        "strings"
         "time"
 
         "github.com/avast/retry-go/v4"
@@ -125,6 +126,13 @@ func (ch *Channel) RecordStream(ctx context.Context, client *chaturbate.Client) 
         ch.RoomTitle = client.LastRoomTitle
         ch.Tags = client.LastTags
         ch.Viewers = client.LastViewers
+        ch.Gender = client.LastGender
+
+        // Fallback: if the API returned no tags array, extract hashtags from
+        // the room title (e.g. "title #tag1 #tag2").
+        if len(ch.Tags) == 0 && ch.RoomTitle != "" {
+                ch.Tags = extractHashtags(ch.RoomTitle)
+        }
 
         // Capture actual stream quality from the playlist
         ch.Resolution = fmt.Sprintf("%dp", playlist.Resolution)
@@ -287,4 +295,22 @@ func (ch *Channel) HandleAudioSegment(b []byte, duration float64) error {
                 return fmt.Errorf("write audio file: %w", err)
         }
         return nil
+}
+
+// extractHashtags pulls #word tokens out of a Chaturbate room title and
+// returns them as a clean tag list.  Used as a fallback when the API
+// returns an empty tags array.
+func extractHashtags(title string) []string {
+        var tags []string
+        for _, word := range strings.Fields(title) {
+                if !strings.HasPrefix(word, "#") {
+                        continue
+                }
+                tag := strings.TrimPrefix(word, "#")
+                tag = strings.Trim(tag, ".,!?;:")
+                if tag != "" {
+                        tags = append(tags, tag)
+                }
+        }
+        return tags
 }

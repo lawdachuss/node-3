@@ -36,12 +36,13 @@ var edgeRegions = []string{"lax", "fra", "ams", "sin", "hnd"}
 // APIResponse represents the response from /api/chatvideocontext/ and get_edge_hls_url_ajax/ endpoints.
 // The POST endpoint returns the stream URL in the "url" field; the GET endpoint uses "hls_source".
 type APIResponse struct {
-        HLSSource  string   `json:"hls_source"`
-        URL        string   `json:"url"`
-        RoomStatus string   `json:"room_status"`
-        RoomTitle  string   `json:"room_title"`
-        Tags       []string `json:"tags"`
-        NumUsers   int      `json:"num_users"`
+        HLSSource         string   `json:"hls_source"`
+        URL               string   `json:"url"`
+        RoomStatus        string   `json:"room_status"`
+        RoomTitle         string   `json:"room_title"`
+        Tags              []string `json:"tags"`
+        NumUsers          int      `json:"num_users"`
+        BroadcasterGender string   `json:"broadcaster_gender"`
 }
 
 // StreamURL returns the HLS source URL, preferring hls_source and falling back to url.
@@ -59,6 +60,7 @@ type Client struct {
         LastRoomTitle  string   // cached room metadata for recording entry
         LastTags       []string // cached room metadata for recording entry
         LastViewers    int      // cached room metadata for recording entry
+        LastGender     string   // cached broadcaster_gender ("m", "f", "c", "t", …)
 }
 
 // NewClient initializes and returns a new Client instance.
@@ -69,7 +71,7 @@ func NewClient() *Client {
 }
 
 // GetStream fetches the stream information for a given username.
-// Room metadata (title, tags, viewers) is cached on the Client for use
+// Room metadata (title, tags, viewers, gender) is cached on the Client for use
 // when building the recording entry.
 func (c *Client) GetStream(ctx context.Context, username string) (*Stream, error) {
         var roomInfo APIResponse
@@ -78,6 +80,7 @@ func (c *Client) GetStream(ctx context.Context, username string) (*Stream, error
         c.LastRoomTitle = roomInfo.RoomTitle
         c.LastTags = roomInfo.Tags
         c.LastViewers = roomInfo.NumUsers
+        c.LastGender = roomInfo.BroadcasterGender
         return stream, err
 }
 
@@ -140,6 +143,9 @@ func tryFlareSolverrStream(ctx context.Context, username, reason string, roomInf
                                 roomInfo.RoomTitle = roomInfoPtr.RoomTitle
                                 roomInfo.Tags = roomInfoPtr.Tags
                                 roomInfo.NumUsers = roomInfoPtr.NumUsers
+                                if roomInfoPtr.BroadcasterGender != "" {
+                                        roomInfo.BroadcasterGender = roomInfoPtr.BroadcasterGender
+                                }
                         }
                         fmt.Printf("[SUCCESS] FlareSolverr/Byparr obtained stream info for %s\n", username)
                         if status == "private" {
@@ -198,6 +204,9 @@ func FetchStream(ctx context.Context, client *internal.Req, username string, roo
                         roomInfo.RoomTitle = resp.RoomTitle
                         roomInfo.Tags = resp.Tags
                         roomInfo.NumUsers = resp.NumUsers
+                        if resp.BroadcasterGender != "" {
+                                roomInfo.BroadcasterGender = resp.BroadcasterGender
+                        }
                 }
 
                 // Handle room status from GET API
@@ -243,11 +252,14 @@ func FetchStream(ctx context.Context, client *internal.Req, username string, roo
                 roomInfo.RoomTitle = resp.RoomTitle
                 roomInfo.Tags = resp.Tags
                 roomInfo.NumUsers = resp.NumUsers
+                if resp.BroadcasterGender != "" {
+                        roomInfo.BroadcasterGender = resp.BroadcasterGender
+                }
         }
 
         // Enrich metadata from the GET API (chatvideocontext) which reliably
-        // returns tags, room_title, and num_users even when the POST endpoint
-        // only returns the HLS URL.
+        // returns tags, room_title, num_users, and broadcaster_gender even when
+        // the POST endpoint only returns the HLS URL.
         if getResp, getErr := fetchAPIResponse(ctx, client, username); getErr == nil {
                 if roomInfo != nil {
                         if getResp.RoomTitle != "" {
@@ -258,6 +270,9 @@ func FetchStream(ctx context.Context, client *internal.Req, username string, roo
                         }
                         if getResp.NumUsers > 0 {
                                 roomInfo.NumUsers = getResp.NumUsers
+                        }
+                        if getResp.BroadcasterGender != "" {
+                                roomInfo.BroadcasterGender = getResp.BroadcasterGender
                         }
                 }
                 if resp.RoomStatus == "" && getResp.RoomStatus != "" {
@@ -283,6 +298,9 @@ func FetchStream(ctx context.Context, client *internal.Req, username string, roo
                                 roomInfo.RoomTitle = getResp.RoomTitle
                                 roomInfo.Tags = getResp.Tags
                                 roomInfo.NumUsers = getResp.NumUsers
+                                if getResp.BroadcasterGender != "" {
+                                        roomInfo.BroadcasterGender = getResp.BroadcasterGender
+                                }
                         }
                 } else {
                         roomStatus := resp.RoomStatus

@@ -120,7 +120,7 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL string) bool 
                         ch.Resolution,
                         ch.Framerate,
                         filesize,
-                        "", // gender - will be set later if needed
+                        ch.Gender,
                         embedURL,
                         links,
                 ); err != nil {

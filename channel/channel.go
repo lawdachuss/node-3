@@ -46,6 +46,7 @@ type Channel struct {
         RoomTitle  string   // captured from API at recording start
         Tags       []string // captured from API at recording start
         Viewers    int      // captured from API at recording start
+        Gender     string   // broadcaster_gender from Chaturbate API ("m", "f", "c", "t", …)
         Resolution string   // actual stream resolution (e.g. "1920x1080")
         Framerate  int      // actual stream framerate (e.g. 30)
 

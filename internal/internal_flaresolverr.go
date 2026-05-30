@@ -19,13 +19,13 @@ import (
 // Priority: FLARESOLVERR_URL env var > UI-configured value (server.Config.ByparrURL) > localhost default.
 // Env var is checked first so docker-compose can override a stale Supabase persisted setting.
 func getFlareSolverrURL() string {
-	if baseURL := os.Getenv("FLARESOLVERR_URL"); baseURL != "" {
-		return baseURL
-	}
-	if server.Config != nil && server.Config.ByparrURL != "" {
-		return server.Config.ByparrURL
-	}
-	return "http://localhost:8191/v1"
+        if baseURL := os.Getenv("FLARESOLVERR_URL"); baseURL != "" {
+                return baseURL
+        }
+        if server.Config != nil && server.Config.ByparrURL != "" {
+                return server.Config.ByparrURL
+        }
+        return "http://localhost:8191/v1"
 }
 
 type flareSolverrRequest struct {
@@ -192,16 +192,16 @@ func GetFreshCookiesViaFlareSolverr(ctx context.Context, url string) (string, st
                 return "", "", fmt.Errorf("parse byparr response: %w (body: %s)", err, bodyPreview)
         }
 
-	// Clean up the session
-	destroyReq := flareSolverrRequest{
-		Cmd:     "sessions.destroy",
-		Session: sessionID,
-	}
-	destroyData, _ := json.Marshal(destroyReq)
-	destroyHttpReq, _ := http.NewRequestWithContext(ctx, "POST", flaresolverrURL, bytes.NewBuffer(destroyData))
-	destroyHttpReq.Header.Set("Content-Type", "application/json")
-	destroyClient := &http.Client{Timeout: 10 * time.Second}
-	destroyClient.Do(destroyHttpReq)
+        // Clean up the session
+        destroyReq := flareSolverrRequest{
+                Cmd:     "sessions.destroy",
+                Session: sessionID,
+        }
+        destroyData, _ := json.Marshal(destroyReq)
+        destroyHttpReq, _ := http.NewRequestWithContext(ctx, "POST", flaresolverrURL, bytes.NewBuffer(destroyData))
+        destroyHttpReq.Header.Set("Content-Type", "application/json")
+        destroyClient := &http.Client{Timeout: 10 * time.Second}
+        destroyClient.Do(destroyHttpReq)
 
         if fsResp.Status != "ok" {
                 // Check for specific error patterns
@@ -258,13 +258,13 @@ func FetchStreamViaFlareSolverr(ctx context.Context, username string, roomInfo *
                 return "", "", fmt.Errorf("get fresh cookies: %w", err)
         }
 
-	// Step 2: Update server config with fresh cookies and user agent, then persist
-	if cookies != "" || userAgent != "" {
-		server.UpdateByparrCredentials(cookies, userAgent)
-	}
-	if err := server.SaveSettings(); err != nil {
-		fmt.Printf("[WARN] could not persist byparr cookies: %v\n", err)
-	}
+        // Step 2: Update server config with fresh cookies and user agent, then persist
+        if cookies != "" || userAgent != "" {
+                server.UpdateByparrCredentials(cookies, userAgent)
+        }
+        if err := server.SaveSettings(); err != nil {
+                fmt.Printf("[WARN] could not persist byparr cookies: %v\n", err)
+        }
 
         // Step 3: POST API with Byparr cookies (csrftoken must match cookie header).
         body, err := PostChaturbateAPI(ctx, username, "")
@@ -285,14 +285,14 @@ func FetchStreamViaFlareSolverr(ctx context.Context, username string, roomInfo *
                 roomInfo.NumUsers = apiBody.NumUsers
         }
 
-	if hlsURL != "" {
-		return hlsURL, roomStatus, nil
-	}
+        if hlsURL != "" {
+                return hlsURL, roomStatus, nil
+        }
 
-	// Debug: log raw body when POST API returned no hls_source
-	fmt.Printf("[DEBUG] PostChaturbateAPI returned empty hls_source/url for %s (room_status=%q). Raw body: %s\n", username, roomStatus, body)
+        // Debug: log raw body when POST API returned no hls_source
+        fmt.Printf("[DEBUG] PostChaturbateAPI returned empty hls_source/url for %s (room_status=%q). Raw body: %s\n", username, roomStatus, body)
 
-	// Step 4: POST may return public with empty hls_source; try GET chatvideocontext.
+        // Step 4: POST may return public with empty hls_source; try GET chatvideocontext.
         if roomStatus == "public" {
                 if hlsURL, roomStatus, apiBody, err = fetchHLSSourceViaGET(ctx, username); err != nil {
                         return "", "", err
@@ -316,12 +316,13 @@ func FetchStreamViaFlareSolverr(ctx context.Context, username string, roomInfo *
 // StreamAPIBody mirrors chaturbate.APIResponse for use within the internal
 // package. The matching field layout allows direct Go struct conversion.
 type StreamAPIBody struct {
-        HLSSource  string   `json:"hls_source"`
-        URL        string   `json:"url"`
-        RoomStatus string   `json:"room_status"`
-        RoomTitle  string   `json:"room_title"`
-        Tags       []string `json:"tags"`
-        NumUsers   int      `json:"num_users"`
+        HLSSource          string   `json:"hls_source"`
+        URL                string   `json:"url"`
+        RoomStatus         string   `json:"room_status"`
+        RoomTitle          string   `json:"room_title"`
+        Tags               []string `json:"tags"`
+        NumUsers           int      `json:"num_users"`
+        BroadcasterGender  string   `json:"broadcaster_gender"`
 }
 
 func parseStreamAPIBody(body string) (hlsURL, roomStatus string, apiBody *StreamAPIBody, err error) {

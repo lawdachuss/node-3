@@ -1,0 +1,74 @@
+
+✕
+channel resumed
+starting to record bailey_eilish
+stream quality - 1080p @ 30fps (target: 2160p @ 60fps)
+mux: separate audio track detected — will mux audio/video after recording
+status: room title: Let's go with the flow <3 #squirt #natural #bigass #flexible [0 tokens remaining…
+duration: 0:00:01, filesize: 989.71 KB
+duration: 0:00:03, filesize: 1.94 MB
+duration: 0:00:04, filesize: 2.81 MB
+duration: 0:00:06, filesize: 3.82 MB
+duration: 0:00:08, filesize: 4.82 MB
+duration: 0:00:09, filesize: 5.81 MB
+duration: 0:00:11, filesize: 6.69 MB
+duration: 0:00:12, filesize: 7.55 MB
+duration: 0:00:14, filesize: 8.59 MB
+duration: 0:00:15, filesize: 9.57 MB
+duration: 0:00:17, filesize: 10.50 MB
+duration: 0:00:19, filesize: 11.39 MB
+duration: 0:00:20, filesize: 12.38 MB
+duration: 0:00:22, filesize: 13.38 MB
+duration: 0:00:24, filesize: 14.29 MB
+duration: 0:00:25, filesize: 15.25 MB
+duration: 0:00:27, filesize: 16.17 MB
+duration: 0:00:28, filesize: 17.13 MB
+duration: 0:00:30, filesize: 18.11 MB
+duration: 0:00:32, filesize: 19.10 MB
+duration: 0:00:33, filesize: 20.02 MB
+duration: 0:00:35, filesize: 20.94 MB
+duration: 0:00:36, filesize: 21.90 MB
+duration: 0:00:38, filesize: 22.89 MB
+duration: 0:00:40, filesize: 23.84 MB
+duration: 0:00:41, filesize: 24.78 MB
+duration: 0:00:43, filesize: 25.76 MB
+duration: 0:00:44, filesize: 26.70 MB
+duration: 0:00:46, filesize: 27.63 MB
+duration: 0:00:48, filesize: 28.62 MB
+duration: 0:00:49, filesize: 29.55 MB
+duration: 0:00:51, filesize: 30.47 MB
+channel paused
+cleanup: queued bailey_eilish_2026-05-30_18-19-58.video.mp4 for post-processing (1 pending)
+cleanup: processing 1 pending file(s)
+mux: combined bailey_eilish_2026-05-30_18-19-58.video.mp4 + bailey_eilish_2026-05-30_18-19-58.audio.mp4 -> bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+delete: removed sidecar bailey_eilish_2026-05-30_18-19-58.video.mp4
+delete: removed sidecar bailey_eilish_2026-05-30_18-19-58.audio.mp4
+channel status: public (paused)
+thumb: ✓ bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+sprite: ✓ bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting upload of bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting PixelDrain upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting Byse upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting Streamtape upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting Mixdrop upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting VOE.sx upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting GoFile upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: starting SendCM upload for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: Mixdrop failed for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: upload failed:
+upload: GoFile successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://gofile.io/d/hMxWbA
+upload: Streamtape successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://streamtape.com/e/zLGABBxrMYcYD04/
+upload: VOE.sx successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://voe.sx/fuxhzyq9cv4p
+upload: PixelDrain successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://pixeldrain.com/u/EzkXpe6n
+upload: SendCM successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://send.now/75vlgmxmfwir
+upload: Byse successful for videos/bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4: https://filemoon.sx/e/i4p71ioixxec
+upload: finished — 6/7 hosts succeeded
+upload: [Mixdrop] failed: upload failed:
+upload: [GoFile] done — https://gofile.io/d/hMxWbA
+upload: [Streamtape] done — https://streamtape.com/e/zLGABBxrMYcYD04/
+upload: [VOE.sx] done — https://voe.sx/fuxhzyq9cv4p
+upload: [PixelDrain] done — https://pixeldrain.com/u/EzkXpe6n
+upload: [SendCM] done — https://send.now/75vlgmxmfwir
+upload: [Byse] done — https://filemoon.sx/e/i4p71ioixxec
+upload: saved preview links for bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: saved recording metadata to Supabase for bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
+upload: removed local file for bailey_eilish_2026-05-30_18-19-58.video.muxed.mp4
