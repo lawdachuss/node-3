@@ -116,8 +116,11 @@ if %ERRORLEVEL% EQU 0 (
 
 if defined ffmpegDir (
     for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "UserPath=%%b"
-    echo !UserPath! | find /I "!ffmpegDir!" >nul
-    if !ERRORLEVEL! NEQ 0 (
+    set "ALREADY_IN_PATH="
+    echo !UserPath! | C:\Windows\System32\find.exe /I "!ffmpegDir!" >nul 2>&1
+    if !ERRORLEVEL! EQU 0 set "ALREADY_IN_PATH=1"
+    
+    if not defined ALREADY_IN_PATH (
         REM setx PATH replaced with reg add for GitHub Actions compatibility
         reg add "HKCU\Environment" /v Path /t REG_EXPAND_SZ /d "!UserPath!;!ffmpegDir!" /f >nul 2>&1
         set "PATH=!PATH!;!ffmpegDir!"
