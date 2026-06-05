@@ -98,6 +98,8 @@ func CreateChannel(c *gin.Context) {
                 c.String(http.StatusInternalServerError, "Failed to save channel config: %v", lastErr)
                 return
         }
+        // Ensure the session loop is running after adding a channel
+        server.Manager.StartSession(server.Config.SessionDurationParsed)
         c.Redirect(http.StatusFound, "/")
 }
 

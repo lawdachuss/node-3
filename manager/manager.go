@@ -92,6 +92,11 @@ type Manager struct {
 	// sends on it to break out of the timer early and start processing.
 	sessionStopCh   chan struct{}
 	sessionStopMu   sync.Mutex
+
+	// sessionMu prevents multiple concurrent sessionLoop goroutines when
+	// StartSession is called more than once (e.g. from create-channel handler).
+	sessionMu       sync.Mutex
+	sessionStarted  bool
 }
 
 // TriggerSessionStop signals the session loop to stop recording now and
@@ -463,6 +468,13 @@ func (m *Manager) StartSession(d time.Duration) {
 	if d <= 0 {
 		return
 	}
+	m.sessionMu.Lock()
+	if m.sessionStarted {
+		m.sessionMu.Unlock()
+		return
+	}
+	m.sessionStarted = true
+	m.sessionMu.Unlock()
 	go m.sessionLoop(d)
 }
 
@@ -475,6 +487,9 @@ func (m *Manager) sessionLoop(d time.Duration) {
 			m.sessionDuration = 0
 			m.sessionDeadlineMu.Unlock()
 			log.Println("[session] no channels to record — stopping session loop")
+			m.sessionMu.Lock()
+			m.sessionStarted = false
+			m.sessionMu.Unlock()
 			return
 		}
 		log.Printf("[session] recording session started — next stop in %s with %d channel(s)", d, channels)
