@@ -1238,33 +1238,92 @@ document.querySelectorAll('.log-container').forEach(function(container) {
     if (!el) return;
     var deadline = parseInt(el.dataset.deadline) || 0;
     var totalSec = parseInt(el.dataset.duration) || 1;
-    var countdown = document.getElementById('session-countdown');
-    var progress = document.getElementById('session-progress');
-    if (!countdown || !progress) return;
+    var badgeTime = document.getElementById('session-badge-time');
+    var cardTime = document.getElementById('session-card-time');
+    var cardProgress = document.getElementById('session-card-progress');
+    var sidebarCountdown = document.getElementById('session-countdown');
+    var sidebarProgress = document.getElementById('session-progress');
     function tick() {
-        if (!deadline) {
-            countdown.textContent = '--';
-            progress.style.width = '0%';
-            return;
-        }
         var now = Math.floor(Date.now() / 1000);
         var rem = deadline - now;
-        if (rem <= 0) {
-            countdown.textContent = 'Processing...';
-            progress.style.width = '100%';
-            progress.style.background = 'linear-gradient(90deg, #f59e0b, #f97316)';
+        var isActive = deadline && rem > 0;
+        if (!isActive) {
+            var txt = deadline ? 'Processing...' : '--';
+            if (sidebarCountdown) sidebarCountdown.textContent = txt;
+            if (sidebarProgress) sidebarProgress.style.width = '0%';
+            if (badgeTime) badgeTime.textContent = txt;
+            if (cardTime) cardTime.textContent = txt;
+            if (cardProgress) { cardProgress.style.width = '100%'; cardProgress.style.background = 'linear-gradient(90deg, #f59e0b, #f97316)'; }
             return;
         }
         var h = Math.floor(rem / 3600);
         var m = Math.floor((rem % 3600) / 60);
         var s = rem % 60;
-        countdown.textContent = h + 'h ' + (m < 10 ? '0' : '') + m + 'm ' + (s < 10 ? '0' : '') + s + 's';
-        progress.style.width = ((totalSec - rem) / totalSec * 100) + '%';
+        var short = h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+        var full = h + 'h ' + (m < 10 ? '0' : '') + m + 'm ' + (s < 10 ? '0' : '') + 's';
+        var pct = ((totalSec - rem) / totalSec * 100);
+        if (sidebarCountdown) sidebarCountdown.textContent = full;
+        if (sidebarProgress) sidebarProgress.style.width = Math.min(pct, 100) + '%';
+        if (badgeTime) badgeTime.textContent = short;
+        if (cardTime) cardTime.textContent = full;
+        if (cardProgress) {
+            cardProgress.style.width = Math.min(pct, 100) + '%';
+            cardProgress.style.background = 'linear-gradient(90deg, #d4a053, #e8c06a)';
+        }
     }
     tick();
     setInterval(tick, 1000);
+
+    // ── Floating clock toggle ──
+    window.toggleSessionCard = function() {
+        document.getElementById('session-card').classList.toggle('hidden');
+    };
+    window.confirmStopSession = function() {
+        if (!confirm('Stop all channels and start processing now?')) return;
+        fetch('/api/session/stop', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.success) {
+                    document.getElementById('session-card').classList.add('hidden');
+                    deadline = 0;
+                }
+            });
+    };
+    document.addEventListener('click', function(e) {
+        var fl = document.getElementById('session-floating');
+        if (fl && !fl.contains(e.target)) document.getElementById('session-card')?.classList.add('hidden');
+    });
 })();
 </script>
+
+<!-- ── Floating Session Clock ── -->
+<div id="session-floating" class="fixed bottom-6 right-6 z-50">
+    <button id="session-badge" onclick="toggleSessionCard()"
+        class="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl transition-all duration-300 hover:scale-105 hover:border-amber-500/40 active:scale-95 cursor-pointer">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span id="session-badge-time" class="text-sm font-mono font-medium text-zinc-200 tabular-nums">--</span>
+    </button>
+    <div id="session-card" class="absolute bottom-full right-0 mb-3 w-72 p-5 rounded-2xl bg-zinc-900/80 backdrop-blur-xl border border-white/10 shadow-2xl hidden transition-all duration-200">
+        <div class="flex items-center gap-2 mb-3">
+            <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span class="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Session Timer</span>
+        </div>
+        <div id="session-card-time" class="text-2xl font-mono font-bold text-zinc-100 mb-3 tabular-nums">--</div>
+        <div class="h-1 rounded-full bg-white/5 overflow-hidden mb-4">
+            <div id="session-card-progress" class="h-full rounded-full bg-gradient-to-r from-amber-600 to-amber-400 transition-all duration-1000" style="width:0%"></div>
+        </div>
+        <button onclick="confirmStopSession()"
+            class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white text-sm font-semibold hover:from-amber-500 hover:to-amber-400 transition-all shadow-lg shadow-amber-600/20 active:scale-95">
+            Stop &amp; Process Now
+        </button>
+        <p class="text-[10px] text-zinc-600 text-center mt-2">All channels stop, uploads begin</p>
+    </div>
+</div>
+
 <script src="/static/scripts/htmx.min.js" crossorigin="anonymous"></script>
 <script src="/static/scripts/sse.min.js" crossorigin="anonymous"></script>
 </body>

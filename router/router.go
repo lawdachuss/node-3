@@ -90,6 +90,9 @@ func SetupViews(r *gin.Engine) {
 	r.POST("/api/orphans/retry", RetryOrphan)
 	r.DELETE("/api/orphans", DeleteOrphans)
 
+	// Session control API
+	r.POST("/api/session/stop", TriggerSessionStop)
+
 }
 
 // LoadHTMLFromEmbedFS loads specific HTML templates from an embedded filesystem and registers them with Gin.

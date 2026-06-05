@@ -87,6 +87,25 @@ type Manager struct {
 	sessionDeadline   time.Time
 	sessionDeadlineMu sync.Mutex
 	sessionDuration   time.Duration
+
+	// sessionStopCh is created each sessionLoop iteration; TriggerSessionStop
+	// sends on it to break out of the timer early and start processing.
+	sessionStopCh   chan struct{}
+	sessionStopMu   sync.Mutex
+}
+
+// TriggerSessionStop signals the session loop to stop recording now and
+// begin the mux/upload/processing phase early. No-op if no active session.
+func (m *Manager) TriggerSessionStop() {
+	m.sessionStopMu.Lock()
+	ch := m.sessionStopCh
+	m.sessionStopMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // SessionInfo returns the remaining recording time and whether a session
@@ -466,6 +485,11 @@ func (m *Manager) sessionLoop(d time.Duration) {
 		m.sessionDuration = d
 		m.sessionDeadlineMu.Unlock()
 
+		stopCh := make(chan struct{}, 1)
+		m.sessionStopMu.Lock()
+		m.sessionStopCh = stopCh
+		m.sessionStopMu.Unlock()
+
 		timer := time.NewTimer(d)
 		progress := time.NewTicker(30 * time.Minute)
 
@@ -475,6 +499,13 @@ func (m *Manager) sessionLoop(d time.Duration) {
 			case <-timer.C:
 				progress.Stop()
 				break sessionWait
+			case <-stopCh:
+				progress.Stop()
+				if !timer.Stop() {
+					<-timer.C
+				}
+				log.Println("[session] manual stop triggered")
+				break sessionWait
 			case <-progress.C:
 				remaining := time.Until(deadline)
 				if remaining > 0 {
@@ -482,6 +513,10 @@ func (m *Manager) sessionLoop(d time.Duration) {
 				}
 			}
 		}
+
+		m.sessionStopMu.Lock()
+		m.sessionStopCh = nil
+		m.sessionStopMu.Unlock()
 
 		log.Println("[session] duration reached — stopping all channels")
 

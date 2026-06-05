@@ -765,6 +765,13 @@ type orphanEntry struct {
 // ListOrphans returns a JSON list of orphaned video files found in the
 // videos/ and OutputDir directories.  Orphans are files that exist on disk
 // but have no Supabase recording entry.
+// TriggerSessionStop manually stops the current recording session early
+// and starts the mux/upload/processing phase.
+func TriggerSessionStop(c *gin.Context) {
+	server.Manager.TriggerSessionStop()
+	c.JSON(200, gin.H{"success": true})
+}
+
 func ListOrphans(c *gin.Context) {
 	dirs := []string{"videos"}
 	if server.Config.OutputDir != "" {
