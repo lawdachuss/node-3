@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="/static/styles/app.css" />
+    <link rel="stylesheet" href="/static/styles/app.css?v=5" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preload" as="style" onload="this.onload=null;this.rel='stylesheet'"
@@ -22,143 +22,13 @@
             }
         })();
     </script>
-    <style>
-        * { box-sizing: border-box; }
-        body { background: var(--bg-body); color: var(--text-primary); min-height: 100dvh; font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; }
-        .page-header {
-            background: var(--bg-surface-alt);
-            border-bottom: 1px solid var(--border-subtle);
-            position: sticky; top: 0; z-index: 50;
-        }
-
-        /* ── Video Card ── */
-        .video-card {
-            background: rgba(16,14,12,0.8);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 16px;
-            overflow: hidden;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .card-thumb { position: relative; overflow: hidden; background: var(--bg-card); aspect-ratio: 16/9; }
-        .card-thumb::after {
-            content: '';
-            position: absolute; inset: 0;
-            background: linear-gradient(to top, rgba(10,9,8,0.75) 0%, rgba(10,9,8,0.2) 40%, transparent 65%);
-            pointer-events: none;
-            z-index: 1;
-            transition: opacity 0.25s ease;
-        }
-        .video-card:hover .card-thumb::after { opacity: 0; }
-        .card-thumb img { width: 100%; height: 100%; object-fit: cover; }
-
-        .sprite-overlay { position: absolute; inset: 0; overflow: hidden; opacity: 0; z-index: 2; transition: opacity 0.15s; }
-        .video-card:hover .sprite-overlay { opacity: 1; }
-        .sprite-anim { width: 100%; height: 100%; background-repeat: no-repeat; }
-        .preview-gif { width: 100%; height: 100%; object-fit: cover; }
-
-        .play-btn-wrap {
-            position: absolute; inset: 0;
-            display: flex; align-items: center; justify-content: center;
-            opacity: 0; z-index: 3; pointer-events: none;
-        }
-        .video-card:hover .play-btn-wrap { opacity: 1; }
-        .play-btn {
-            width: 56px; height: 56px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, rgba(212,160,83,0.25), rgba(180,130,60,0.15));
-            border: 1px solid rgba(212,160,83,0.3);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(212,160,83,0.1);
-            transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease;
-        }
-        .video-card:hover .play-btn { transform: scale(1.1); box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 30px rgba(212,160,83,0.2); }
-        .play-btn svg { width: 20px; height: 20px; color: #d4a053; margin-left: 2px; }
-
-        .card-badges {
-            position: absolute; top: 10px; left: 10px; right: 10px;
-            display: flex; align-items: flex-start; justify-content: space-between;
-            gap: 6px; pointer-events: none; z-index: 6;
-        }
-        .badge {
-            font-size: 9px; font-weight: 700; padding: 3px 8px;
-            border-radius: 6px;
-            background: rgba(0,0,0,0.75);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
-        .badge-res { background: linear-gradient(135deg, rgba(212,160,83,0.3), rgba(212,160,83,0.15)); border-color: rgba(212,160,83,0.2); }
-        .badge-size { background: rgba(0,0,0,0.75); }
-
-        .card-body { padding: 14px 16px 16px; }
-        .card-title { font-size: 13px; font-weight: 700; color: #f4f4f5; letter-spacing: -0.01em; line-height: 1.3; font-family: 'Outfit', sans-serif; }
-        .card-subtitle { font-size: 10px; color: #3f3f46; font-family: 'SF Mono', 'Fira Code', monospace; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .card-room-title { font-size: 11px; color: #52525b; font-style: italic; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-        .tag-badge {
-            font-size: 9px; font-weight: 600; padding: 3px 9px;
-            border-radius: 20px;
-            background: rgba(139,92,246,0.08);
-            color: #a78bfa;
-            border: 1px solid rgba(139,92,246,0.15);
-            transition: all 0.15s;
-        }
-        .tag-badge:hover { background: rgba(139,92,246,0.15); border-color: rgba(212,160,83,0.2); }
-
-        .uploaded-badge {
-            display: inline-flex; align-items: center; gap: 4px;
-            font-size: 8px; font-weight: 700; padding: 3px 8px;
-            border-radius: 20px;
-            background: rgba(16,185,129,0.12);
-            border: 1px solid rgba(16,185,129,0.25);
-            color: #34d399;
-            letter-spacing: 0.03em;
-            text-transform: uppercase;
-        }
-        .host-badge {
-            font-size: 9px; font-weight: 700; padding: 3px 9px;
-            border-radius: 6px;
-            background: rgba(16,185,129,0.1);
-            color: #34d399;
-            border: 1px solid rgba(16,185,129,0.15);
-            transition: all 0.15s;
-        }
-        .host-badge:hover { background: rgba(16,185,129,0.2); transform: translateY(-1px); }
-        .delete-btn {
-            width: 28px; height: 28px;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
-            color: #52525b; cursor: pointer; transition: all 0.15s;
-        }
-        .delete-btn:hover { background: rgba(212,160,83,0.1); border-color: rgba(212,160,83,0.2); color: #d4a053; }
-
-        /* ── Performance ── */
-        .video-card { contain: layout style paint; }
-        .sprite-anim { image-rendering: auto; }
-
-        /* ── Light mode ── */
-        html:not(.dark) body { background: #f4f4f5; color: #18181b; }
-        html:not(.dark) .page-header { background: #ffffff !important; border-bottom: 1px solid #e4e4e7; }
-        html:not(.dark) .video-card { background: rgba(255,255,255,0.95) !important; border: 1px solid #e4e4e7 !important; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        html:not(.dark) .video-card:hover { background-color: #f9fafb !important; border-color: rgba(212,160,83,0.3) !important; }
-        html:not(.dark) .card-thumb { background: #f4f4f5; }
-        html:not(.dark) .card-thumb::after { background: linear-gradient(to top, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.12) 40%, transparent 65%); }
-        html:not(.dark) .card-title { color: #18181b; }
-        html:not(.dark) .card-subtitle { color: #71717a; }
-        html:not(.dark) .badge { background: rgba(0,0,0,0.55); color: #fff; }
-        html:not(.dark) .host-badge { background: rgba(16,185,129,0.12); color: #059669; border-color: rgba(16,185,129,0.25); }
-        html:not(.dark) .tag-badge { background: rgba(139,92,246,0.1); color: #7c3aed; border-color: rgba(139,92,246,0.2); }
-        html:not(.dark) .delete-btn { background: rgba(0,0,0,0.04); border-color: #e4e4e7; color: #71717a; }
-    </style>
 </head>
 <body>
 
 <div class="page-header">
     <div class="max-w-screen-xl mx-auto px-5 py-3.5 flex items-center justify-between">
         <div class="flex items-center gap-3">
-            <a href="/videos" class="nav-btn w-9 h-9" title="Back">
+            <a href="/videos" class="nav-btn" title="Back">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </a>
             <div class="flex items-center gap-2.5">
@@ -172,7 +42,7 @@
                 </div>
             </div>
         </div>
-        <button onclick="toggleDarkMode()" class="nav-btn w-9 h-9">
+        <button onclick="toggleDarkMode()" class="nav-btn">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
         </button>
     </div>
@@ -217,22 +87,20 @@
                     </svg>
                 </div>
                 {{ end }}
-                {{ if .FullPath }}
                 <div class="play-btn-wrap">
                     <div class="play-btn">
                         <svg fill="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21"/></svg>
                     </div>
                 </div>
-                {{ end }}
                 <div class="card-badges">
                     <div class="flex flex-wrap gap-1">
                         {{ if .Resolution }}<span class="badge badge-res">{{ .Resolution }}</span>{{ end }}
                         {{ if gt .Framerate 0 }}<span class="badge">{{ .Framerate }}fps</span>{{ end }}
                     </div>
-                    <span class="badge badge-size">{{ .Size }}</span>
+                    <span class="badge">{{ .Size }}</span>
                 </div>
                 {{ if not .FullPath }}
-                <div class="absolute bottom-2.5 left-2.5 z-4 pointer-events-none">
+                <div class="absolute bottom-2.5 left-2.5 z-[4] pointer-events-none">
                     <span class="uploaded-badge">
                         <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
                         Uploaded
