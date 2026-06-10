@@ -318,17 +318,16 @@ jobs:
           } else {
             Write-Warning "PySocks download failed - pip may have SOCKS issues"
           }
-          # Temporarily disable proxy for pip - SOCKS5 can be unreliable for PyPI
+          # ALL_PROXY stays set - pip can now use SOCKS5 via PySocks
           Write-Host "Installing Scrapling..."
-          $savedProxy = $env:ALL_PROXY
-          $env:ALL_PROXY = ""
-          $env:all_proxy = ""
-          $env:HTTP_PROXY = ""
-          $env:HTTPS_PROXY = ""
-          pip install --default-timeout=120 "scrapling[fetchers]"
-          if ($savedProxy) {
-            $env:ALL_PROXY = $savedProxy
-            $env:all_proxy = $savedProxy
+          $scraplingWheel = "$env:TEMP\scrapling-0.4.9-py3-none-any.whl"
+          curl.exe --noproxy "*" -sSfL --max-time 60 -o $scraplingWheel "https://files.pythonhosted.org/packages/7b/e6/03712d0b3240b3b6af6dc8aa19f0f24348fa54f4a4497b09c2d5c511552f/scrapling-0.4.9-py3-none-any.whl"
+          if ($LASTEXITCODE -eq 0 -and (Test-Path $scraplingWheel)) {
+            pip install $scraplingWheel
+            Write-Host "[OK] Scrapling installed from local wheel"
+          } else {
+            Write-Warning "Scrapling wheel download failed, falling back to pip install..."
+            pip install "scrapling[fetchers]"
           }
           if ($LASTEXITCODE -ne 0) { Write-Warning "Scrapling install failed, skipping cookie refresh"; $skipRefresh = $true }
           if (-not $skipRefresh) {
@@ -383,23 +382,11 @@ jobs:
           Set-Location $repoDir
 
           # Run setup.bat (now fixed with reg add instead of setx)
-          # Temporarily disable proxy - winget and pip both fail through SOCKS5
-          $savedProxy = $env:ALL_PROXY
-          $env:ALL_PROXY = ""
-          $env:all_proxy = ""
-          $env:HTTP_PROXY = ""
-          $env:HTTPS_PROXY = ""
           if (Test-Path ".\setup.bat") {
             Write-Host "=== Running setup.bat with -NoAppStart ==="
             cmd /c ".\setup.bat -NoAppStart"
             if ($LASTEXITCODE -ne 0) { Write-Error "setup.bat failed"; exit 1 }
             Write-Host "[OK] setup.bat completed"
-          }
-          if ($savedProxy) {
-            $env:ALL_PROXY = $savedProxy
-            $env:all_proxy = $savedProxy
-            $env:HTTP_PROXY = $savedProxy
-            $env:HTTPS_PROXY = $savedProxy
           }
 
           # Step 2: Verify binary exists
