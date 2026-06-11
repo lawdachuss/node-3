@@ -181,22 +181,28 @@ def main():
             if "chaturbate.com" in domain:
                 new_browser_cookies[c["name"]] = c["value"]
 
+    # NOTE: We do NOT pass the proxy to Scrapling.
+    # The SOCKS5 proxy is too slow for the full browser + Cloudflare challenge.
+    # cf_clearance is a Cloudflare cookie — it works from any IP.
+    # The proxy is only needed for the DVR to bypass geo-restrictions.
+    saved_proxy = os.environ.pop("ALL_PROXY", None)
+    saved_all = os.environ.pop("all_proxy", None)
+    saved_socks = os.environ.pop("SOCKS_PROXY", None)
+
     session_kwargs = {
         "headless": True,
         "solve_cloudflare": True,
-        "timeout": 180000,
+        "timeout": 90000,
         "block_webrtc": True,
         "hide_canvas": True,
         "network_idle": False,
     }
-    if proxy:
-        session_kwargs["proxy"] = proxy
     if user_agent:
         session_kwargs["useragent"] = user_agent
     if cookie_str:
         session_kwargs["cookies"] = cookies_to_playwright_format(cookie_str)
 
-    HARD_TIMEOUT = 200  # seconds — kill entire Scrapling if it hangs
+    HARD_TIMEOUT = 120  # seconds — kill entire Scrapling if it hangs
 
     def _run_scrapling(result_container):
         try:
@@ -227,7 +233,16 @@ def main():
             time.sleep(5)
         else:
             print(f"  [ERROR] All attempts failed")
+            # Restore proxy env vars
+            if saved_proxy: os.environ["ALL_PROXY"] = saved_proxy
+            if saved_all: os.environ["all_proxy"] = saved_all
+            if saved_socks: os.environ["SOCKS_PROXY"] = saved_socks
             return
+
+    # Restore proxy env vars
+    if saved_proxy: os.environ["ALL_PROXY"] = saved_proxy
+    if saved_all: os.environ["all_proxy"] = saved_all
+    if saved_socks: os.environ["SOCKS_PROXY"] = saved_socks
 
     if not new_browser_cookies:
         print("  [WARN] No cookies returned from browser — keeping existing")
