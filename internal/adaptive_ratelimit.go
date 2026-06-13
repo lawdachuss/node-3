@@ -152,7 +152,11 @@ func (rl *AdaptiveRateLimiter) refillLoop() {
 }
 
 func (rl *AdaptiveRateLimiter) Stop() {
-	close(rl.stopCh)
+	select {
+	case <-rl.stopCh:
+	default:
+		close(rl.stopCh)
+	}
 }
 
 func envInt(name string, fallback int) int {

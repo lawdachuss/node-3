@@ -18,6 +18,7 @@ type persistedSettings struct {
 	Csrftoken       string `json:"csrftoken,omitempty"`
 	CfClearance     string `json:"cf_clearance,omitempty"`
 	UserAgent       string `json:"user_agent"`
+	VoeSXAPIKey     string `json:"voesx_api_key,omitempty"`
 	StreamtapeLogin string `json:"streamtape_login,omitempty"`
 	StreamtapeKey   string `json:"streamtape_key,omitempty"`
 	MixdropEmail    string `json:"mixdrop_email,omitempty"`
@@ -35,6 +36,7 @@ func SaveSettings() error {
 		Csrftoken:       Config.Csrftoken,
 		CfClearance:     Config.CfClearance,
 		UserAgent:       Config.UserAgent,
+		VoeSXAPIKey:     Config.VoeSXAPIKey,
 		StreamtapeLogin: Config.StreamtapeLogin,
 		StreamtapeKey:   Config.StreamtapeKey,
 		MixdropEmail:    Config.MixdropEmail,
@@ -83,6 +85,9 @@ func LoadSettings() error {
 	if s.UserAgent != "" {
 		Config.UserAgent = s.UserAgent
 	}
+	if s.VoeSXAPIKey != "" {
+		Config.VoeSXAPIKey = s.VoeSXAPIKey
+	}
 	if s.StreamtapeLogin != "" {
 		Config.StreamtapeLogin = s.StreamtapeLogin
 	}
@@ -129,10 +134,12 @@ func extractCookie(cookieStr, name string) string {
         return ""
 }
 
-// UpdateUploaderCredentials updates upload service credentials (Streamtape, Mixdrop)
-// and protects concurrent access with a mutex.
-func UpdateUploaderCredentials(streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, pixeldrainToken string) {
+// UpdateUploaderCredentials updates upload service credentials and protects concurrent access with a mutex.
+func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, pixeldrainToken string) {
 	ConfigMu.Lock()
+	if voeSXAPIKey != "" {
+		Config.VoeSXAPIKey = voeSXAPIKey
+	}
 	if streamtapeLogin != "" {
 		Config.StreamtapeLogin = streamtapeLogin
 	}

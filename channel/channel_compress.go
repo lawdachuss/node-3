@@ -221,7 +221,6 @@ func (ch *Channel) MuxAVNative(videoPath, audioPath, outputPath string) error {
         if err != nil {
                 return fmt.Errorf("create mux output: %w", err)
         }
-        defer outFile.Close()
 
         warn := func(msg string) { ch.Info("mux: %s", msg) }
         if err := writeCombinedFragmentedMP4(outFile, videoFile, audioFile, warn); err != nil {
@@ -229,6 +228,7 @@ func (ch *Channel) MuxAVNative(videoPath, audioPath, outputPath string) error {
                 os.Remove(outputPath)
                 return fmt.Errorf("native mux audio/video: %w", err)
         }
+        outFile.Close()
 
         ch.Info("mux: combined %s + %s -> %s (native)", filepath.Base(videoPath), filepath.Base(audioPath), filepath.Base(outputPath))
         return nil

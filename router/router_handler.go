@@ -154,6 +154,7 @@ type UpdateConfigRequest struct {
 	Csrftoken       string `json:"csrftoken" form:"csrftoken"`
 	CfClearance     string `json:"cf_clearance" form:"cf_clearance"`
 	UserAgent       string `json:"user_agent" form:"user_agent"`
+	VoeSXAPIKey     string `json:"voesx_api_key" form:"voesx_api_key"`
 	StreamtapeLogin string `json:"streamtape_login" form:"streamtape_login"`
 	StreamtapeKey   string `json:"streamtape_key" form:"streamtape_key"`
 	MixdropEmail    string `json:"mixdrop_email" form:"mixdrop_email"`
@@ -223,9 +224,9 @@ func UpdateConfig(c *gin.Context) {
                 server.ConfigMu.Unlock()
         }
 
-        // Update uploader credentials (Streamtape / Mixdrop / PixelDrain)
-        if req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.PixeldrainToken != "" {
-                server.UpdateUploaderCredentials(req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.PixeldrainToken)
+        // Update uploader credentials (VOE.sx / Streamtape / Mixdrop / PixelDrain)
+        if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.PixeldrainToken != "" {
+                server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.PixeldrainToken)
         }
 
         if err := server.SaveSettings(); err != nil {

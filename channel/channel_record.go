@@ -195,12 +195,12 @@ func (ch *Channel) initRecordingState(hasSeparateAudio bool) {
 	ch.StreamedAt = time.Now().Unix()
 	ch.Sequence = 0
 	ch.HasSeparateAudio = hasSeparateAudio
+	ch.videoSegmentCount = 0
+	ch.audioSegmentCount = 0
 	ch.stateMu.Unlock()
 	ch.InitSegment = nil
 	ch.AudioInitSegment = nil
 	ch.switchRequested = false
-	ch.videoSegmentCount = 0
-	ch.audioSegmentCount = 0
 }
 
 func (ch *Channel) cleanupOnExit(ctx context.Context) {
@@ -289,9 +289,13 @@ func (ch *Channel) watchWithGraceCB(ctx context.Context, client *internal.Req, p
 }
 
 func (ch *Channel) watchLoopCB(ctx context.Context, client *internal.Req, p *chaturbate.Playlist) error {
+	const maxStalls = 10
 	siteImpl := site.NewChaturbateSite()
-	err := p.WatchAVSegments(ctx, ch.HandleSegment, ch.HandleInitSegment, ch.HandleAudioSegment, ch.HandleAudioInitSegment, ch.OnPollComplete)
-	if err != nil && errors.Is(err, internal.ErrStreamStalled) {
+	for stall := 0; stall < maxStalls; stall++ {
+		err := p.WatchAVSegments(ctx, ch.HandleSegment, ch.HandleInitSegment, ch.HandleAudioSegment, ch.HandleAudioInitSegment, ch.OnPollComplete)
+		if err == nil || !errors.Is(err, internal.ErrStreamStalled) {
+			return err
+		}
 		ch.Info("recording: CDN session expired — fetching fresh playlist URL")
 		info, apiErr := siteImpl.FetchStream(ctx, client, ch.Config.Username)
 		if apiErr != nil {
@@ -301,15 +305,15 @@ func (ch *Channel) watchLoopCB(ctx context.Context, client *internal.Req, p *cha
 		if apiErr != nil {
 			return apiErr
 		}
+		p = newPlaylist
 		ch.Resolution = fmt.Sprintf("%dp", newPlaylist.Resolution)
 		ch.Framerate = newPlaylist.Framerate
 		ch.stateMu.Lock()
 		ch.RoomStatus = site.StatusPublic
 		ch.stateMu.Unlock()
 		ch.UpdateOnlineStatus(true)
-		return ch.watchLoopCB(ctx, client, newPlaylist)
 	}
-	return err
+	return fmt.Errorf("too many consecutive CDN stalls (%d): %w", maxStalls, internal.ErrStreamStalled)
 }
 
 // ─── Stripchat grace/watch ──────────────────────────────────────────────
@@ -404,37 +408,13 @@ func (ch *Channel) watchWithGraceSC(ctx context.Context, client *internal.Req, p
 }
 
 func (ch *Channel) watchLoopSC(ctx context.Context, client *internal.Req, p *stripchat.Playlist) error {
-	return ch.watchLoopSCWithRetry(ctx, client, p, 0)
-}
-
-// fetchStreamWithRetry calls FetchStream and retries transient API failures
-// with a short delay so a brief blip during CDN token rollover doesn't trigger
-// the full 3-minute grace period.
-func (ch *Channel) fetchStreamWithRetry(ctx context.Context, client *internal.Req, siteImpl site.Site) (*site.StreamInfo, error) {
-	const maxAttempts = 5
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		info, err := siteImpl.FetchStream(ctx, client, ch.Config.Username)
-		if err == nil {
-			return info, nil
+	const maxStalls = 10
+	for stall := 0; stall < maxStalls; stall++ {
+		err := p.WatchAVSegments(ctx, ch.HandleSegment, ch.HandleInitSegment, ch.HandleAudioSegment, ch.HandleAudioInitSegment, ch.OnPollComplete)
+		if err == nil || !errors.Is(err, internal.ErrStreamStalled) {
+			return err
 		}
-		lastErr = err
-		if attempt < maxAttempts-1 {
-			ch.Info("recording: API unavailable during CDN refresh (%s) — retrying in 15s (attempt %d/%d)", err, attempt+1, maxAttempts)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(15 * time.Second):
-			}
-		}
-	}
-	return nil, lastErr
-}
-
-func (ch *Channel) watchLoopSCWithRetry(ctx context.Context, client *internal.Req, p *stripchat.Playlist, retryCount int) error {
-	err := p.WatchAVSegments(ctx, ch.HandleSegment, ch.HandleInitSegment, ch.HandleAudioSegment, ch.HandleAudioInitSegment, ch.OnPollComplete)
-	if err != nil && errors.Is(err, internal.ErrStreamStalled) {
-		ch.Info("recording: CDN session expired — refreshing master playlist (refresh #%d)", retryCount+1)
+		ch.Info("recording: CDN session expired — refreshing master playlist (refresh #%d)", stall+1)
 
 		// The variant playlist URL has a short-lived ?pkey= token (~20s).
 		// The master playlist URL has no token — re-fetch it to get a fresh
@@ -459,15 +439,39 @@ func (ch *Channel) watchLoopSCWithRetry(ctx context.Context, client *internal.Re
 				return apiErr
 			}
 		}
+		p = newPlaylist
 		ch.Resolution = fmt.Sprintf("%dp", newPlaylist.Resolution)
 		ch.Framerate = newPlaylist.Framerate
 		ch.stateMu.Lock()
 		ch.RoomStatus = site.StatusPublic
 		ch.stateMu.Unlock()
 		ch.UpdateOnlineStatus(true)
-		return ch.watchLoopSCWithRetry(ctx, client, newPlaylist, retryCount+1)
 	}
-	return err
+	return fmt.Errorf("too many consecutive CDN stalls (%d): %w", maxStalls, internal.ErrStreamStalled)
+}
+
+// fetchStreamWithRetry calls FetchStream and retries transient API failures
+// with a short delay so a brief blip during CDN token rollover doesn't trigger
+// the full 3-minute grace period.
+func (ch *Channel) fetchStreamWithRetry(ctx context.Context, client *internal.Req, siteImpl site.Site) (*site.StreamInfo, error) {
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		info, err := siteImpl.FetchStream(ctx, client, ch.Config.Username)
+		if err == nil {
+			return info, nil
+		}
+		lastErr = err
+		if attempt < maxAttempts-1 {
+			ch.Info("recording: API unavailable during CDN refresh (%s) — retrying in 15s (attempt %d/%d)", err, attempt+1, maxAttempts)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(15 * time.Second):
+			}
+		}
+	}
+	return nil, lastErr
 }
 
 // HandleInitSegment stores the fMP4 init segment and writes it to the file.
@@ -535,9 +539,10 @@ func (ch *Channel) HandleSegment(b []byte, duration float64) error {
 	fs := ch.Filesize
 	vSegCount := ch.videoSegmentCount
 	aSegCount := ch.audioSegmentCount
+	hasSeparateAudio := ch.HasSeparateAudio
 	ch.stateMu.Unlock()
 
-	if ch.HasSeparateAudio {
+	if hasSeparateAudio {
 		segDiff := vSegCount - aSegCount
 		if segDiff != 0 {
 			ch.Info("duration: %s, filesize: %s [v:%d a:%d Δ%+d]", internal.FormatDuration(dur), internal.FormatFilesize(fs), vSegCount, aSegCount, segDiff)
@@ -554,7 +559,7 @@ func (ch *Channel) HandleSegment(b []byte, duration float64) error {
 		return nil
 	}
 
-	if ch.HasSeparateAudio {
+	if hasSeparateAudio {
 		ch.switchRequested = true
 		return nil
 	}

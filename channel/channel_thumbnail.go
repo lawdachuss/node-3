@@ -82,13 +82,13 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 
 	var dur float64
 	config.AcquireFFmpeg()
-	defer config.ReleaseFFmpeg()
 	probeOut, probeErr := config.FFprobeCommandContext(probeCtx,
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		videoPath,
 	).Output()
+	config.ReleaseFFmpeg() // release immediately — the 3 goroutines below also need slots
 	if probeErr == nil {
 		var parseErr error
 		dur, parseErr = strconv.ParseFloat(strings.TrimSpace(string(probeOut)), 64)

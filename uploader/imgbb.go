@@ -12,7 +12,6 @@ import (
 )
 
 const imgbbAPIURL = "https://api.imgbb.com/1/upload"
-const imgbbDefaultKey = "5cddf83a7031b66400c06c622fdac2ad"
 
 type imgbbResponse struct {
 	Data struct {
@@ -29,9 +28,6 @@ type ImgBBUploader struct {
 
 func NewImgBBUploader() *ImgBBUploader {
 	key := os.Getenv("IMGBB_API_KEY")
-	if key == "" {
-		key = imgbbDefaultKey
-	}
 	return &ImgBBUploader{
 		apiKey: key,
 		client: newNoProxyClient(60 * time.Second),
@@ -39,6 +35,9 @@ func NewImgBBUploader() *ImgBBUploader {
 }
 
 func (u *ImgBBUploader) Upload(filePath string) (string, error) {
+	if u.apiKey == "" {
+		return "", fmt.Errorf("imgbb: IMGBB_API_KEY not set")
+	}
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("imgbb: read file: %w", err)

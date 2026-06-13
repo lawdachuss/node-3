@@ -331,6 +331,12 @@ func start(c *cli.Context) error {
 		} else {
 			fmt.Println("✅ Cookies loaded from Supabase")
 		}
+		// Persist the merged config (env + Supabase) back to Supabase so that
+		// upload credentials set in .env survive on subsequent runs where .env
+		// is absent (e.g. GitHub Actions). Best-effort — a failure here is not fatal.
+		if err := server.SaveSettings(); err != nil {
+			fmt.Printf("⚠️  Failed to persist merged settings to Supabase: %v\n", err)
+		}
 	}
 
 	if server.Config.Cookies == "" || server.Config.UserAgent == "" {

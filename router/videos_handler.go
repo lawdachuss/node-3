@@ -289,7 +289,7 @@ func scanVideos() []*VideoEntry {
         }
 
         sort.Slice(entries, func(i, j int) bool {
-                return entries[i].ModTime > entries[j].ModTime
+                return entries[i].ModTimeSort > entries[j].ModTimeSort
         })
         return entries
 }
@@ -380,7 +380,7 @@ func walkDir(dir string, previewLinks map[string][3]string) []*VideoEntry {
 }
 
 func extractUsername(filename string) string {
-        if idx := strings.Index(filename, "_2"); idx > 0 {
+        if idx := strings.Index(filename, "_20"); idx > 0 {
                 return filename[:idx]
         }
         if idx := strings.Index(filename, "_"); idx > 0 {

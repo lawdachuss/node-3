@@ -77,7 +77,7 @@ func checkDisk() {
 		if target < 1 {
 			target = 1
 		}
-		deleted, err := freeDiskSpace(target, info.Percent)
+		deleted, err := freeDiskSpace(target, info)
 		if err != nil {
 			log.Printf("[DISK] auto-cleanup error: %v", err)
 		} else if deleted > 0 {
@@ -104,7 +104,7 @@ func saveDiskUsageToDB(info *entity.DiskInfo) {
 // freeDiskSpace deletes the oldest local video files that have been verified
 // as fully uploaded (have a corresponding Supabase recording entry).
 // Returns the number of files deleted.
-func freeDiskSpace(targetPercent, currentPercent int) (int, error) {
+func freeDiskSpace(targetPercent int, diskInfo *entity.DiskInfo) (int, error) {
 	dirs := []string{"videos"}
 	if Config.OutputDir != "" {
 		dirs = append(dirs, Config.OutputDir)
@@ -171,13 +171,12 @@ func freeDiskSpace(targetPercent, currentPercent int) (int, error) {
 	})
 
 	// Calculate how much we need to free
-	total := GetDiskInfo()
-	if total == nil || total.TotalGB == 0 {
+	if diskInfo.TotalGB == 0 {
 		return 0, fmt.Errorf("could not determine total disk size")
 	}
 
-	usedGB := total.UsedGB
-	targetUsedGB := total.TotalGB * float64(targetPercent) / 100
+	usedGB := diskInfo.UsedGB
+	targetUsedGB := diskInfo.TotalGB * float64(targetPercent) / 100
 	neededGB := usedGB - targetUsedGB
 
 	if neededGB <= 0 {
