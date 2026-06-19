@@ -1209,7 +1209,9 @@ func collectPendingSegments(username string) []string {
 	return collectPendingSegmentsInDir(dir)
 }
 
-// collectPendingSegmentsInDir returns sorted absolute paths of all files in dir.
+// collectPendingSegmentsInDir returns sorted absolute paths of actual video
+// files in dir, filtering out sidecar files, zero-byte files, and
+// merged-*.mp4 files that were already consolidated.
 func collectPendingSegmentsInDir(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -1217,9 +1219,20 @@ func collectPendingSegmentsInDir(dir string) []string {
 	}
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() {
-			paths = append(paths, filepath.Join(dir, e.Name()))
+		if e.IsDir() {
+			continue
 		}
+		name := e.Name()
+		// Skip sidecar files — they are not video segments.
+		if isSidecar(name) {
+			continue
+		}
+		// Skip zero-byte files — they are corrupt/empty segments.
+		info, err := e.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, name))
 	}
 	sort.Strings(paths)
 	return paths
@@ -1626,9 +1639,9 @@ func processAllPendingSegments() {
 			}
 
 			mergedDur, durErr := VideoDurationSeconds(mergedPath)
+			pendingDir := pendingSegmentsDir(username)
 			if durErr != nil || mergedDur < float64(minDur) {
 				// Merged result still below threshold — keep it pending for next recording
-				pendingDir := pendingSegmentsDir(username)
 				mergedName := "merged-" + filepath.Base(segments[0])
 				if durErr != nil {
 					recoveryLogf(mergedPath, "recovery: could not probe merged duration (%v) — keeping pending", durErr)
@@ -1642,6 +1655,29 @@ func processAllPendingSegments() {
 				}
 				_ = os.MkdirAll(pendingDir, 0777)
 				_ = os.Rename(mergedPath, filepath.Join(pendingDir, mergedName))
+				pendingDirMu.Unlock()
+				continue
+			}
+
+			// Sanity check: the merged output should not be significantly shorter
+			// than the sum of input durations.  If it is, the concat demuxer may
+			// have silently dropped incompatible streams (encoding mismatch across
+			// different recording sessions), producing a shorter-than-expected file.
+			var totalInputDur float64
+			for _, s := range segCopy {
+				if d, e := VideoDurationSeconds(s); e == nil {
+					totalInputDur += d
+				}
+			}
+			if totalInputDur > 0 && mergedDur < totalInputDur*0.5 {
+				recoveryLogf(mergedPath, "recovery: merged output %.1fs is <50%% of total input %.1fs — streams may be incompatible, keeping pending",
+					mergedDur, totalInputDur)
+				pendingDirMu.Lock()
+				for _, s := range segCopy {
+					os.Remove(s)
+				}
+				_ = os.MkdirAll(pendingDir, 0777)
+				_ = os.Rename(mergedPath, filepath.Join(pendingDir, "merged-"+filepath.Base(segments[0])))
 				pendingDirMu.Unlock()
 				continue
 			}
