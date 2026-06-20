@@ -93,6 +93,12 @@
         .status-badge.offline { background: rgba(113,113,122,0.12); color: #71717a; }
         .mono { font-family: ui-monospace, monospace; font-size: 11px; }
         .empty-state { padding: 24px; text-align: center; color: var(--text-muted); font-size: 12px; }
+        .visit-link {
+            display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 10px;
+            border-radius: 5px; background: rgba(59,130,246,0.15); color: #60a5fa;
+            text-decoration: none; white-space: nowrap;
+        }
+        .visit-link:hover { background: rgba(59,130,246,0.3); }
     </style>
 </head>
 <body>
@@ -144,6 +150,7 @@
                     <th>Last Heartbeat</th>
                     <th>Label</th>
                     <th>Registered</th>
+                    <th>Web UI</th>
                 </tr>
             </thead>
             <tbody>
@@ -166,10 +173,17 @@
                     <td class="mono">{{ .LastHeartbeat }}</td>
                     <td>{{ .InstanceLabel }}</td>
                     <td class="mono">{{ .CreatedAt }}</td>
+                    <td>
+                        {{ if .WebURL }}
+                        <a href="{{ .WebURL }}" target="_blank" rel="noopener" class="visit-link" title="Open {{ .NodeID }} web UI">🔗 Visit</a>
+                        {{ else }}
+                        <span style="color:var(--text-muted);font-size:10px">—</span>
+                        {{ end }}
+                    </td>
                 </tr>
                 {{ end }}
                 {{ else }}
-                <tr><td colspan="8" class="empty-state">No nodes registered</td></tr>
+                <tr><td colspan="9" class="empty-state">No nodes registered</td></tr>
                 {{ end }}
             </tbody>
         </table>

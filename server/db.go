@@ -761,7 +761,19 @@ func SaveTunnelToDB(tunnelURL string, runID int) error {
 		IsActive:   true,
 	}
 
-	return client.SaveTunnel(tunnel)
+	if err := client.SaveTunnel(tunnel); err != nil {
+		return err
+	}
+
+	// Also mirror the tunnel URL onto this node's row so the admin panel's
+	// per-node "Visit" link reflects the current public address.  The cloudflared
+	// Quick Tunnel URL rotates every run, so this must be refreshed each session.
+	if nodeID := NodeID(); nodeID != "" {
+		if err := client.UpdateNodeWebURL(nodeID, tunnelURL); err != nil {
+			fmt.Printf("[WARN] failed to update node web_url: %v\n", err)
+		}
+	}
+	return nil
 }
 
 // LoadCurrentTunnel loads the active tunnel URL from Supabase

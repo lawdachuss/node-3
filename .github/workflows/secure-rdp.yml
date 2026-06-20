@@ -960,6 +960,25 @@ jobs:
               Write-Warning "Tunnel URL not found after 45 seconds"
               Write-Warning "cloudflared stderr: $stderrLog"
             }
+
+            # Report the tunnel URL to the DVR so it can persist it to Supabase
+            # (nodes.web_url + tunnels table).  The admin panel's per-node "Visit"
+            # link reads nodes.web_url, so this must run every session.
+            function Report-TunnelUrl([string]$url) {
+              if (-not $url) { return }
+              for ($t = 0; $t -lt 10; $t++) {
+                try {
+                  $body = @{ url = $url } | ConvertTo-Json
+                  Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null
+                  Write-Host "[OK] Reported tunnel URL to DVR: $url"
+                  return
+                } catch {
+                  Start-Sleep -Seconds 3
+                }
+              }
+              Write-Warning "[WARN] Could not report tunnel URL to DVR after 10 attempts"
+            }
+            Report-TunnelUrl $tunnelUrl
           } else {
             Write-Host "[SKIP] cloudflared not found - DVR accessible via Tailscale only"
           }
@@ -1036,6 +1055,8 @@ jobs:
                   $tunnelUrl = $urlMatch.Value
                   $tunnelUrl | Set-Content -Path $tunnelUrlFile -Force
                   Write-Host "[OK] New tunnel URL: $tunnelUrl"
+                  # URL changed on reconnect — re-report so admin panel stays current
+                  Report-TunnelUrl $tunnelUrl
                 }
               }
             }

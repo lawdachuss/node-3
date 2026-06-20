@@ -770,6 +770,14 @@ func (c *Client) UpdateNodeStatus(nodeID, status string) error {
 	})
 }
 
+// UpdateNodeWebURL sets the public web URL for a node.  Used by the cloudflared
+// tunnel reporter so the admin panel's "Visit" link reflects the live tunnel.
+func (c *Client) UpdateNodeWebURL(nodeID, webURL string) error {
+	return c.patch(fmt.Sprintf("/nodes?node_id=eq.%s", url.QueryEscape(nodeID)), map[string]interface{}{
+		"web_url": webURL,
+	})
+}
+
 // GetNode retrieves a single node by ID.
 func (c *Client) GetNode(nodeID string) (*Node, error) {
 	var nodes []Node

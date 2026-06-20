@@ -647,7 +647,13 @@
                     {{ if .Nodes }}
                     {{ range .Nodes }}
                     <tr>
-                        <td><strong class="mono">{{ .NodeID }}</strong></td>
+                        <td>
+                            {{ if .WebURL }}
+                            <a href="{{ .WebURL }}" target="_blank" rel="noopener" class="mono" style="font-weight:700;color:var(--text);text-decoration:none" title="Open {{ .NodeID }} web UI">🔗 {{ .NodeID }}</a>
+                            {{ else }}
+                            <strong class="mono">{{ .NodeID }}</strong>
+                            {{ end }}
+                        </td>
                         <td>{{ .Hostname }}</td>
                         <td>
                             {{ if eq .Status "online" }}
@@ -664,7 +670,7 @@
                         <td class="mono" style="font-size:10px">{{ .LastHeartbeat }}</td>
                         <td>
                             {{ if .WebURL }}
-                            <a href="{{ .WebURL }}" target="_blank" class="btn-action" title="Open {{ .NodeID }} web UI">Visit</a>
+                            <a href="{{ .WebURL }}" target="_blank" rel="noopener" class="btn-action" title="Open {{ .NodeID }} web UI">🔗 Visit</a>
                             {{ else }}
                             <span style="color:var(--text-muted);font-size:10px">—</span>
                             {{ end }}
