@@ -61,11 +61,13 @@ func (c *Coordinator) runClaimCycle() {
 		return
 	}
 
-	// 2. Calculate fair share
-	fairShare := 0
-	if stats.TotalAliveNodes > 0 {
-		fairShare = int(math.Ceil(float64(stats.TotalLiveChannels) / float64(stats.TotalAliveNodes)))
+	// 2. Calculate fair share based on total unassigned channels
+	poolSize := stats.TotalUnassigned + stats.TotalAssignedNodes // rough total pool size
+	totalNodes := stats.TotalAliveNodes
+	if totalNodes == 0 {
+		totalNodes = 1
 	}
+	fairShare := int(math.Ceil(float64(poolSize) / float64(totalNodes)))
 
 	// 3. Get our current load
 	myLoad, err := c.Client.CountMyAssignments(c.NodeID)
@@ -91,8 +93,8 @@ func (c *Coordinator) runClaimCycle() {
 		return
 	}
 
-	log.Printf("[coordinator] claimed %d new channel(s) (load: %d -> %d, fairShare: %d)",
-		len(claimed), myLoad, myLoad+len(claimed), fairShare)
+	log.Printf("[coordinator] claimed %d new channel(s) (load: %d -> %d, fairShare: %d, poolSize: %d)",
+		len(claimed), myLoad, myLoad+len(claimed), fairShare, poolSize)
 
 	// 6. Convert assignments to channels via the manager
 	for _, ca := range claimed {

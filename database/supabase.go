@@ -841,11 +841,13 @@ type ChannelAssignment struct {
 
 // AssignmentStats holds summary statistics for fair-share calculation.
 type AssignmentStats struct {
-	TotalLiveChannels int `json:"total_live_channels"`
-	TotalAliveNodes   int `json:"total_alive_nodes"`
+	TotalLiveChannels  int `json:"total_live_channels"`
+	TotalUnassigned    int `json:"total_unassigned"`
+	TotalAssignedNodes int `json:"total_assigned_nodes"`
+	TotalAliveNodes    int `json:"total_alive_nodes"`
 }
 
-// ClaimChannels atomically claims up to `limit` unassigned live channels for this node.
+// ClaimChannels atomically claims up to `limit` unassigned channels for this node.
 // Returns the rows that were successfully claimed (empty slice if none available).
 func (c *Client) ClaimChannels(nodeID string, limit int) ([]ChannelAssignment, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -857,7 +859,7 @@ func (c *Client) ClaimChannels(nodeID string, limit int) ([]ChannelAssignment, e
 	}
 
 	resp, err := c.requestWithRetry("PATCH",
-		fmt.Sprintf("/channel_assignments?assigned_node=is.null&status=eq.unassigned&is_live=eq.true&order=username.asc&limit=%d", limit),
+		fmt.Sprintf(	"/channel_assignments?assigned_node=is.null&status=eq.unassigned&order=username.asc&limit=%d", limit),
 		body)
 	if err != nil {
 		return nil, err
@@ -970,13 +972,25 @@ func (c *Client) GetAllAssignments() ([]ChannelAssignment, error) {
 func (c *Client) GetAssignmentStats() (*AssignmentStats, error) {
 	stats := &AssignmentStats{}
 
-	// Count live channels
-	var liveChannels []ChannelAssignment
-	err := c.get("/channel_assignments?is_live=eq.true&select=username&limit=50000", &liveChannels)
+	// Count total unassigned channels (pool size)
+	var unassigned []ChannelAssignment
+	err := c.get("/channel_assignments?status=eq.unassigned&select=username&limit=50000", &unassigned)
 	if err != nil {
 		return nil, err
 	}
-	stats.TotalLiveChannels = len(liveChannels)
+	stats.TotalUnassigned = len(unassigned)
+
+	// Count nodes with active assignments
+	var assigned []ChannelAssignment
+	err = c.get("/channel_assignments?assigned_node=not.is.null&select=assigned_node&limit=50000", &assigned)
+	if err != nil {
+		return nil, err
+	}
+	assignedNodes := make(map[string]bool)
+	for _, a := range assigned {
+		assignedNodes[a.AssignedNode] = true
+	}
+	stats.TotalAssignedNodes = len(assignedNodes)
 
 	// Count alive nodes
 	aliveNodes, err := c.GetAliveNodes()
