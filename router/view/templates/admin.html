@@ -421,6 +421,8 @@
                 <label for="auto-refresh" style="cursor:pointer">Auto</label>
             </span>
             <a href="javascript:void(0)" onclick="location.reload()">Refresh</a>
+            <a href="javascript:void(0)" onclick="stopAllChannels()"
+               style="background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.2)">⏹ Stop All</a>
         </div>
     </div>
 
@@ -997,6 +999,21 @@ function scheduleRefresh() {
     refreshTimer = setTimeout(function() {
         location.reload();
     }, 30000);
+}
+
+function stopAllChannels() {
+    if (!confirm('Stop all channels and begin processing uploads?')) return;
+    var btn = event.target;
+    btn.textContent = '⏳ Stopping...';
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    fetch('/api/session/stop', { method: 'POST' }).then(function() {
+        btn.textContent = '✅ Stopped';
+        setTimeout(function() { location.reload(); }, 2000);
+    }).catch(function() {
+        btn.textContent = '❌ Failed';
+        setTimeout(function() { location.reload(); }, 2000);
+    });
 }
 
 function channelAction(action, username) {
