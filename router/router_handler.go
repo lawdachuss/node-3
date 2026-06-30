@@ -1555,10 +1555,10 @@ type PoolCheckRequest struct {
 	Username string `json:"username" form:"username" binding:"required"`
 }
 
-// CheckPoolChannel checks if a channel exists on the given site by querying
-// the site's API. Returns {exists: true/false}. Intended for real-time
-// validation in the pool add form. Uses a no-proxy request — the
-// chatvideocontext GET endpoint does not need the SOCKS5 proxy.
+// CheckPoolChannel checks if a channel already exists in the Supabase database
+// (either in the pool assignments table or the channels table). Returns
+// {exists: true/false} — used for real-time duplicate detection in the pool
+// add form. No external HTTP calls are made.
 func CheckPoolChannel(c *gin.Context) {
 	var req PoolCheckRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1574,36 +1574,24 @@ func CheckPoolChannel(c *gin.Context) {
 		return
 	}
 
-	apiURL := fmt.Sprintf("%sapi/chatvideocontext/%s/", server.Config.Domain, req.Username)
-	if req.Site == "stripchat" {
-		apiURL = fmt.Sprintf("https://stripchat.com/api/front/v2/chat/%s/", req.Username)
-	}
-
-	client := internal.NewNoProxyReq()
-	body, err := client.GetBytes(c.Request.Context(), apiURL)
-	if err != nil {
+	dbClient := server.GetDBClient()
+	if dbClient == nil {
+		// No DB configured — cannot check, treat as not existing
 		c.JSON(http.StatusOK, gin.H{"exists": false})
 		return
 	}
 
-	// If we got a valid JSON response, the channel exists. Check for age
-	// verification or error pages that indicate non-existence.
-	var result map[string]interface{}
-	if json.Unmarshal(body, &result) != nil {
-		c.JSON(http.StatusOK, gin.H{"exists": false})
-		return
-	}
-
-	// Stripchat returns {"error":"Not found"} for non-existent channels
-	if req.Site == "stripchat" {
-		if errMsg, ok := result["error"].(string); ok && errMsg != "" {
-			c.JSON(http.StatusOK, gin.H{"exists": false})
-			return
-		}
+	// Check pool assignments table (pooled mode)
+	if assignment, err := dbClient.GetAssignment(req.Username, req.Site); err == nil && assignment != nil {
 		c.JSON(http.StatusOK, gin.H{"exists": true})
 		return
 	}
 
-	// Chaturbate — any valid response means the channel exists
-	c.JSON(http.StatusOK, gin.H{"exists": true})
+	// Check isolated channels table (isolated mode)
+	if ch, err := dbClient.GetChannel(req.Username); err == nil && ch != nil {
+		c.JSON(http.StatusOK, gin.H{"exists": true})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"exists": false})
 }

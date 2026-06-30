@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="/static/styles/app.css?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <title>Channel Pool — StreamBate</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preload" as="style" onload="this.onload=null;this.rel='stylesheet'"
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@400;500;600;700;800;900&display=swap" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@400;500;600;700;800;900&display=swap" /></noscript>
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-    <title>Channel Pool — StreamBate</title>
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" /></noscript>
     <script>
         (function(){
             if (localStorage.getItem('darkMode') === 'true' ||
@@ -20,149 +19,402 @@
         })();
     </script>
     <style>
+        /* ── Tokens ─────────────────────────────────────────── */
         :root {
-            --bg-body: #0a0a0c;
-            --bg-surface: #121216;
-            --bg-card: #1a1a20;
-            --bg-input: rgba(255,255,255,0.04);
-            --text-primary: #e4e4e7;
-            --text-secondary: #a1a1aa;
-            --text-muted: #52525b;
-            --border-color: rgba(255,255,255,0.06);
-            --border-subtle: rgba(255,255,255,0.08);
-            --accent: #d4a053;
+            --bg-body:     #09090b;
+            --bg-surface:  #111115;
+            --bg-card:     #18181e;
+            --bg-card2:    #1f1f27;
+            --bg-input:    rgba(255,255,255,0.05);
+            --text-primary:   #f0f0f3;
+            --text-secondary: #9898a6;
+            --text-muted:     #4a4a5a;
+            --border:      rgba(255,255,255,0.07);
+            --border-mid:  rgba(255,255,255,0.11);
+            --accent:      #c084fc;       /* purple */
+            --accent2:     #818cf8;       /* indigo */
+            --live:        #22d3ee;       /* cyan */
+            --live-glow:   rgba(34,211,238,.35);
+            --green:   #34d399;
+            --green-bg:rgba(52,211,153,.12);
+            --blue:    #60a5fa;
+            --blue-bg: rgba(96,165,250,.12);
+            --amber:   #fbbf24;
+            --amber-bg:rgba(251,191,36,.12);
+            --red:     #f87171;
+            --red-bg:  rgba(248,113,113,.12);
+            --gray:    #6b7280;
+            --gray-bg: rgba(107,114,128,.10);
+            --pink:    #f472b6;
+            --pink-bg: rgba(244,114,182,.12);
+            --purple:  #c084fc;
+            --purple-bg: rgba(192,132,252,.12);
         }
         html:not(.dark) {
-            --bg-body: #f4f4f5;
+            --bg-body:    #f3f4f6;
             --bg-surface: #ffffff;
-            --bg-card: #fafafa;
-            --bg-input: #f4f4f5;
-            --text-primary: #18181b;
-            --text-secondary: #52525b;
-            --text-muted: #a1a1aa;
-            --border-color: #e4e4e7;
-            --border-subtle: #d4d4d8;
+            --bg-card:    #f9fafb;
+            --bg-card2:   #f3f4f6;
+            --bg-input:   #f3f4f6;
+            --text-primary:   #111827;
+            --text-secondary: #4b5563;
+            --text-muted:     #9ca3af;
+            --border:     #e5e7eb;
+            --border-mid: #d1d5db;
+            --live-glow:  rgba(34,211,238,.2);
         }
+
+        /* ── Reset ──────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; }
         body {
             font-family: 'DM Sans', system-ui, sans-serif;
             background: var(--bg-body);
             color: var(--text-primary);
-            margin: 0;
-            padding: 0;
+            margin: 0; padding: 0;
             font-size: 13px;
+            min-height: 100vh;
         }
-        .layout { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+
+        /* ── Layout ─────────────────────────────────────────── */
+        .layout { max-width: 1280px; margin: 0 auto; padding: 28px 32px; }
+
+        /* ── Header ─────────────────────────────────────────── */
         .header {
             display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 28px; padding-bottom: 16px;
-            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 28px; padding-bottom: 18px;
+            border-bottom: 1px solid var(--border);
         }
-        .header h1 { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 22px; margin: 0; }
-        .nav-links { display: flex; gap: 12px; align-items: center; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-icon {
+            width: 36px; height: 36px; border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; flex-shrink: 0;
+        }
+        .header h1 {
+            font-family: 'Outfit', sans-serif; font-weight: 800;
+            font-size: 22px; margin: 0;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .nav-links { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .nav-links a {
-            font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px;
-            background: var(--bg-input); border: 1px solid var(--border-subtle);
-            color: var(--text-secondary); transition: all 0.2s; text-decoration: none;
+            font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 7px;
+            background: var(--bg-input); border: 1px solid var(--border-mid);
+            color: var(--text-secondary); transition: all 0.18s; text-decoration: none;
         }
-        .nav-links a:hover { background: var(--bg-card); color: var(--text-primary); text-decoration: none; }
-        .section { margin-bottom: 28px; }
-        .section-title {
-            font-family: 'Outfit', sans-serif; font-size: 16px; font-weight: 700;
-            margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;
+        .nav-links a:hover { background: var(--bg-card2); color: var(--text-primary); border-color: var(--accent); }
+        .nav-links .sep { width: 1px; height: 16px; background: var(--border-mid); }
+
+        /* ── Stats row ──────────────────────────────────────── */
+        .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex; flex-direction: column; gap: 4px;
+            position: relative; overflow: hidden;
         }
-        .section-title .count {
-            font-size: 11px; font-weight: 600; color: var(--text-muted);
-            background: var(--bg-input); padding: 2px 8px; border-radius: 6px;
+        .stat-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
         }
-        .table-wrap { overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th {
-            text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.06em; color: var(--text-muted); padding: 10px 12px;
-            border-bottom: 1px solid var(--border-color); white-space: nowrap;
-        }
-        td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle; }
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background: rgba(255,255,255,0.02); }
-        .status-badge {
-            display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
-            border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em;
-        }
-        .status-badge.live { background: rgba(16,185,129,0.15); color: #10b981; }
-        .status-badge.claimed { background: rgba(59,130,246,0.15); color: #3b82f6; }
-        .status-badge.unassigned { background: rgba(245,158,11,0.15); color: #f59e0b; }
-        .status-badge.offline { background: rgba(113,113,122,0.12); color: #71717a; }
-        .mono { font-family: ui-monospace, monospace; font-size: 11px; }
-        .empty-state { padding: 24px; text-align: center; color: var(--text-muted); font-size: 12px; }
-        .btn-action {
-            font-size: 11px; padding: 3px 8px; border-radius: 4px; border: none;
-            cursor: pointer; font-weight: 600; background: rgba(255,255,255,0.06);
-            color: var(--text-secondary); transition: background 0.15s;
-        }
-        .btn-action:hover { background: rgba(255,255,255,0.12); }
-        .btn-action-del:hover { background: rgba(239,68,68,0.2); color: #ef4444; }
+        .stat-card.s-total::before  { background: linear-gradient(90deg,var(--accent),var(--accent2)); }
+        .stat-card.s-live::before   { background: linear-gradient(90deg,var(--live),var(--green)); }
+        .stat-card.s-claimed::before{ background: linear-gradient(90deg,var(--blue),var(--accent2)); }
+        .stat-card.s-unassigned::before { background: linear-gradient(90deg,var(--amber),var(--pink)); }
+        .stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); }
+        .stat-val   { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; line-height: 1; }
+        .stat-card.s-total   .stat-val { color: var(--accent); }
+        .stat-card.s-live    .stat-val { color: var(--live); }
+        .stat-card.s-claimed .stat-val { color: var(--blue); }
+        .stat-card.s-unassigned .stat-val { color: var(--amber); }
+
+        /* ── Add Form ───────────────────────────────────────── */
         .add-form {
             display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-            padding: 12px; background: var(--bg-card); border: 1px solid var(--border-color);
-            border-radius: 12px; margin-bottom: 16px;
+            padding: 14px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-mid);
+            border-radius: 14px;
+            margin-bottom: 20px;
+            position: relative;
         }
-        .add-form input, .add-form select {
-            padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color);
-            background: var(--bg-input); color: var(--text-primary); font-size: 12px;
+        .add-form::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), var(--live));
+            border-radius: 14px 14px 0 0;
         }
-        .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--accent); }
-        .add-form button {
-            padding: 6px 14px; border-radius: 6px; border: none;
-            background: var(--accent); color: #fff; font-size: 12px; font-weight: 600;
-            cursor: pointer;
+        .form-label {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .06em; color: var(--text-muted); margin-right: 4px;
         }
-        .add-form button:hover { opacity: 0.85; }
+        .add-form select, .add-form input[type=text] {
+            padding: 7px 11px; border-radius: 8px;
+            border: 1px solid var(--border-mid);
+            background: var(--bg-input); color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif; font-size: 13px;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .add-form select:focus, .add-form input[type=text]:focus {
+            outline: none; border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(192,132,252,.18);
+        }
+        .username-wrap { position: relative; display: inline-flex; align-items: center; }
+        .username-wrap input { padding-right: 28px; min-width: 160px; }
+        #pool-check-indicator {
+            position: absolute; right: 8px;
+            font-size: 15px; line-height: 1;
+            transition: color .2s;
+            pointer-events: none;
+        }
+        .add-form .btn-add {
+            padding: 7px 18px; border-radius: 8px; border: none;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff; font-size: 13px; font-weight: 700;
+            cursor: pointer; letter-spacing: .02em;
+            transition: opacity .15s, transform .1s, box-shadow .15s;
+            box-shadow: 0 2px 12px rgba(192,132,252,.3);
+        }
+        .add-form .btn-add:hover:not(:disabled) {
+            opacity: .9; transform: translateY(-1px);
+            box-shadow: 0 4px 18px rgba(192,132,252,.45);
+        }
+        .add-form .btn-add:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+        .dup-hint {
+            font-size: 11px; color: var(--amber); font-weight: 600;
+            display: none; align-items: center; gap: 4px;
+        }
+        .dup-hint.show { display: flex; }
+
+        /* ── Section ────────────────────────────────────────── */
+        .section { margin-bottom: 28px; }
+        .section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .section-title {
+            font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 700;
+            margin: 0; display: flex; align-items: center; gap: 8px;
+        }
+        .count-badge {
+            font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 20px;
+            background: var(--purple-bg); color: var(--purple);
+        }
+
+        /* ── Table ──────────────────────────────────────────── */
+        .table-wrap {
+            overflow-x: auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        thead tr { border-bottom: 1px solid var(--border-mid); }
+        th {
+            text-align: left; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .07em;
+            color: var(--text-muted); padding: 11px 14px; white-space: nowrap;
+        }
+        td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr { transition: background .12s; }
+        tbody tr:hover td { background: rgba(255,255,255,0.025); }
+
+        /* ── Badges ─────────────────────────────────────────── */
+        .badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 10px; font-weight: 700; padding: 3px 9px;
+            border-radius: 20px; text-transform: uppercase; letter-spacing: .05em;
+            white-space: nowrap;
+        }
+        .badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Status */
+        .badge-claimed    { background: var(--blue-bg);   color: var(--blue); }
+        .badge-claimed .badge-dot    { background: var(--blue); }
+        .badge-unassigned { background: var(--amber-bg);  color: var(--amber); }
+        .badge-unassigned .badge-dot { background: var(--amber); }
+        .badge-offline    { background: var(--gray-bg);   color: var(--gray); }
+        .badge-offline .badge-dot    { background: var(--gray); }
+
+        /* Live */
+        .badge-live {
+            background: var(--live-glow);
+            color: var(--live);
+            box-shadow: 0 0 8px var(--live-glow);
+            animation: pulse-live 2s ease-in-out infinite;
+        }
+        .badge-live .badge-dot { background: var(--live); box-shadow: 0 0 5px var(--live); }
+        @keyframes pulse-live {
+            0%,100% { box-shadow: 0 0 6px var(--live-glow); }
+            50%      { box-shadow: 0 0 14px rgba(34,211,238,.55); }
+        }
+        .badge-down { background: var(--gray-bg); color: var(--gray); }
+        .badge-down .badge-dot { background: var(--gray); }
+
+        /* Site pills */
+        .site-pill {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10px; font-weight: 700; padding: 3px 10px;
+            border-radius: 20px; letter-spacing: .04em;
+        }
+        .site-pill.chaturbate { background: rgba(255,138,76,.13); color: #ff8a4c; }
+        .site-pill.stripchat  { background: rgba(236,72,153,.13);  color: #ec4899; }
+
+        /* Resolution chip */
+        .res-chip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; font-weight: 500;
+            padding: 2px 8px; border-radius: 5px;
+        }
+        .res-2160 { background: rgba(192,132,252,.15); color: var(--purple); }
+        .res-1440 { background: rgba(96,165,250,.15);  color: var(--blue); }
+        .res-1080 { background: rgba(52,211,153,.15);  color: var(--green); }
+        .res-720  { background: rgba(251,191,36,.15);  color: var(--amber); }
+        .res-other{ background: var(--gray-bg);        color: var(--gray); }
+
+        /* FPS chip */
+        .fps-chip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; font-weight: 500;
+            padding: 2px 8px; border-radius: 5px;
+        }
+        .fps-60 { background: rgba(244,114,182,.13); color: var(--pink); }
+        .fps-30 { background: rgba(107,114,128,.12); color: var(--gray); }
+
+        /* Username */
+        .uname { font-weight: 700; font-size: 13px; }
+        .uname-link { color: var(--text-primary); text-decoration: none; }
+        .uname-link:hover { color: var(--accent); }
+
+        /* Node mono */
+        .node-id {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            color: var(--text-secondary); background: var(--bg-card2);
+            padding: 2px 7px; border-radius: 5px;
+        }
+
+        /* Timestamp */
+        .ts { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
+
+        /* ── Action button ──────────────────────────────────── */
+        .btn-del {
+            font-size: 11px; padding: 4px 10px; border-radius: 6px; border: none;
+            cursor: pointer; font-weight: 700;
+            background: var(--red-bg); color: var(--red);
+            transition: background .15s, transform .1s;
+        }
+        .btn-del:hover {
+            background: rgba(248,113,113,.28);
+            transform: scale(1.06);
+        }
+
+        /* ── Empty state ────────────────────────────────────── */
+        .empty-state {
+            padding: 60px 24px; text-align: center;
+            color: var(--text-muted); font-size: 13px;
+        }
+        .empty-icon { font-size: 40px; margin-bottom: 10px; opacity: .4; }
+        .empty-state p { margin: 0; }
+
+        /* ── Auto-refresh toggle ────────────────────────────── */
+        .auto-wrap { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+        .auto-wrap input { accent-color: var(--accent); margin: 0; width: 13px; height: 13px; cursor: pointer; }
+        .auto-wrap label { cursor: pointer; }
     </style>
 </head>
 <body>
 <div class="layout">
+
+    <!-- ── Header ── -->
     <div class="header">
-        <h1>Channel Pool</h1>
+        <div class="header-left">
+            <div class="header-icon">🎥</div>
+            <h1>Channel Pool</h1>
+        </div>
         <div class="nav-links">
             <a href="/">← Dashboard</a>
             <a href="/admin">Admin</a>
             <a href="/nodes">Nodes</a>
             <a href="/videos">Videos</a>
-            <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px">
-                <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()"
-                       style="accent-color:var(--accent);margin:0;width:14px;height:14px">
-                <label for="auto-refresh" style="cursor:pointer">Auto</label>
-            </span>
-            <a href="javascript:void(0)" onclick="location.reload()">Refresh</a>
-            <a href="javascript:void(0)" onclick="toggleTheme()" id="theme-btn" style="font-size:14px">🌙</a>
+            <div class="sep"></div>
+            <div class="auto-wrap">
+                <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+                <label for="auto-refresh">Auto</label>
+            </div>
+            <a href="javascript:void(0)" onclick="location.reload()">⟳ Refresh</a>
+            <a href="javascript:void(0)" onclick="toggleTheme()" id="theme-btn" style="font-size:15px">🌙</a>
         </div>
     </div>
 
-	<div class="add-form">
-		<select id="pool-site">
-			<option value="chaturbate">Chaturbate</option>
-			<option value="stripchat">Stripchat</option>
-		</select>
-		<div style="position:relative;display:inline-flex;align-items:center">
-			<input type="text" id="pool-username" placeholder="Username" oninput="onUsernameInput()" style="padding-right:24px" />
-			<span id="pool-check-indicator" style="position:absolute;right:6px;font-size:14px;line-height:1"></span>
-		</div>
-		<select id="pool-resolution">
-			<option value="2160" selected>4K — 2160p</option>
-			<option value="1440">2K — 1440p</option>
-			<option value="1080">FHD — 1080p</option>
-			<option value="720">HD — 720p</option>
-		</select>
-		<select id="pool-framerate">
-			<option value="60" selected>60 FPS</option>
-			<option value="30">30 FPS</option>
-		</select>
-		<button onclick="addToPool()" id="pool-add-btn">Add to Pool</button>
-	</div>
+    <!-- ── Stats ── -->
+    <div class="stats-row">
+        <div class="stat-card s-total">
+            <div class="stat-label">Total</div>
+            <div class="stat-val">{{ len .Assignments }}</div>
+        </div>
+        <div class="stat-card s-live">
+            <div class="stat-label">Live Now</div>
+            <div class="stat-val" id="stat-live">
+                {{ $live := 0 }}{{ range .Assignments }}{{ if .IsLive }}{{ $live = add $live 1 }}{{ end }}{{ end }}{{ $live }}
+            </div>
+        </div>
+        <div class="stat-card s-claimed">
+            <div class="stat-label">Claimed</div>
+            <div class="stat-val" id="stat-claimed">
+                {{ $claimed := 0 }}{{ range .Assignments }}{{ if eq .Status "claimed" }}{{ $claimed = add $claimed 1 }}{{ end }}{{ end }}{{ $claimed }}
+            </div>
+        </div>
+        <div class="stat-card s-unassigned">
+            <div class="stat-label">Unassigned</div>
+            <div class="stat-val" id="stat-unassigned">
+                {{ $unassigned := 0 }}{{ range .Assignments }}{{ if eq .Status "unassigned" }}{{ $unassigned = add $unassigned 1 }}{{ end }}{{ end }}{{ $unassigned }}
+            </div>
+        </div>
+    </div>
 
+    <!-- ── Add Form ── -->
+    <div class="add-form">
+        <span class="form-label">Add</span>
+
+        <select id="pool-site" onchange="onSiteChange()">
+            <option value="chaturbate">🟠 Chaturbate</option>
+            <option value="stripchat">🩷 Stripchat</option>
+        </select>
+
+        <div class="username-wrap">
+            <input type="text" id="pool-username" placeholder="Username"
+                   oninput="onUsernameInput()" autocomplete="off" spellcheck="false" />
+            <span id="pool-check-indicator"></span>
+        </div>
+
+        <select id="pool-resolution">
+            <option value="2160" selected>4K — 2160p</option>
+            <option value="1440">2K — 1440p</option>
+            <option value="1080">FHD — 1080p</option>
+            <option value="720">HD — 720p</option>
+        </select>
+
+        <select id="pool-framerate">
+            <option value="60" selected>60 FPS</option>
+            <option value="30">30 FPS</option>
+        </select>
+
+        <button class="btn-add" onclick="addToPool()" id="pool-add-btn">+ Add to Pool</button>
+
+        <span class="dup-hint" id="dup-hint">⚠ Already in pool</span>
+    </div>
+
+    <!-- ── Assignments Table ── -->
     {{ if .Assignments }}
     <div class="section">
-        <h2 class="section-title">Assignments <span class="count">{{ len .Assignments }}</span></h2>
+        <div class="section-header">
+            <h2 class="section-title">
+                Channels
+                <span class="count-badge">{{ len .Assignments }}</span>
+            </h2>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -173,44 +425,93 @@
                         <th>Status</th>
                         <th>Live</th>
                         <th>Resolution</th>
-                        <th>Framerate</th>
-                        <th>Assigned</th>
-                        <th>Actions</th>
+                        <th>FPS</th>
+                        <th>Assigned At</th>
+                        <th>Remove</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{ range .Assignments }}
                     <tr>
-                        <td><strong>{{ .Username }}</strong></td>
-                        <td>{{ .Site }}</td>
-                        <td class="mono">
-                            {{ if .AssignedNode }}
-                            {{ .AssignedNode }}
+                        <!-- Username -->
+                        <td>
+                            <span class="uname">
+                                <a class="uname-link" href="#" title="{{ .Username }}">{{ .Username }}</a>
+                            </span>
+                        </td>
+
+                        <!-- Site -->
+                        <td>
+                            {{ if eq .Site "chaturbate" }}
+                                <span class="site-pill chaturbate">🟠 Chaturbate</span>
+                            {{ else if eq .Site "stripchat" }}
+                                <span class="site-pill stripchat">🩷 Stripchat</span>
                             {{ else }}
-                            <span style="color:var(--text-muted)">—</span>
+                                <span class="site-pill">{{ .Site }}</span>
                             {{ end }}
                         </td>
+
+                        <!-- Node -->
+                        <td>
+                            {{ if .AssignedNode }}
+                                <span class="node-id">{{ .AssignedNode }}</span>
+                            {{ else }}
+                                <span style="color:var(--text-muted)">—</span>
+                            {{ end }}
+                        </td>
+
+                        <!-- Assignment Status -->
                         <td>
                             {{ if eq .Status "claimed" }}
-                                <span class="status-badge claimed">Claimed</span>
+                                <span class="badge badge-claimed"><span class="badge-dot"></span>Claimed</span>
                             {{ else if eq .Status "unassigned" }}
-                                <span class="status-badge unassigned">Unassigned</span>
+                                <span class="badge badge-unassigned"><span class="badge-dot"></span>Unassigned</span>
                             {{ else }}
-                                <span class="status-badge">{{ .Status }}</span>
+                                <span class="badge badge-offline"><span class="badge-dot"></span>{{ .Status }}</span>
                             {{ end }}
                         </td>
+
+                        <!-- Live Status -->
                         <td>
                             {{ if .IsLive }}
-                                <span class="status-badge live">Live</span>
+                                <span class="badge badge-live"><span class="badge-dot"></span>Live</span>
                             {{ else }}
-                                <span class="status-badge offline">Offline</span>
+                                <span class="badge badge-down"><span class="badge-dot"></span>Offline</span>
                             {{ end }}
                         </td>
-                        <td class="mono">{{ .Resolution }}p</td>
-                        <td class="mono">{{ .Framerate }}fps</td>
-                        <td class="mono">{{ .AssignedAt }}</td>
+
+                        <!-- Resolution -->
                         <td>
-                            <button class="btn-action btn-action-del" onclick="removeFromPool('{{ .Username }}', '{{ .Site }}')" title="Remove">✕</button>
+                            {{ if eq .Resolution 2160 }}
+                                <span class="res-chip res-2160">4K 2160p</span>
+                            {{ else if eq .Resolution 1440 }}
+                                <span class="res-chip res-1440">2K 1440p</span>
+                            {{ else if eq .Resolution 1080 }}
+                                <span class="res-chip res-1080">FHD 1080p</span>
+                            {{ else if eq .Resolution 720 }}
+                                <span class="res-chip res-720">HD 720p</span>
+                            {{ else }}
+                                <span class="res-chip res-other">{{ .Resolution }}p</span>
+                            {{ end }}
+                        </td>
+
+                        <!-- Framerate -->
+                        <td>
+                            {{ if eq .Framerate 60 }}
+                                <span class="fps-chip fps-60">60 fps</span>
+                            {{ else }}
+                                <span class="fps-chip fps-30">{{ .Framerate }} fps</span>
+                            {{ end }}
+                        </td>
+
+                        <!-- Assigned At -->
+                        <td><span class="ts">{{ .AssignedAt }}</span></td>
+
+                        <!-- Remove -->
+                        <td>
+                            <button class="btn-del"
+                                    onclick="removeFromPool('{{ .Username }}', '{{ .Site }}')"
+                                    title="Remove {{ .Username }} from pool">✕ Remove</button>
                         </td>
                     </tr>
                     {{ end }}
@@ -219,111 +520,164 @@
         </div>
     </div>
     {{ else }}
-    <div class="empty-state" style="padding:48px">No channels in the pool. Add one above.</div>
+    <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <p>No channels in the pool yet.<br>Add one using the form above.</p>
+    </div>
     {{ end }}
-</div>
+
+</div><!-- /layout -->
 
 <script>
-var _poolCheckTimer = null;
+/* ── Duplicate check ─────────────────────────────── */
+var _checkTimer  = null;
+var _isDuplicate = false;
+
+function onSiteChange() {
+    // Re-run the check if username is already typed
+    var u = document.getElementById('pool-username').value.trim();
+    if (u) onUsernameInput();
+}
 
 function onUsernameInput() {
-    if (_poolCheckTimer) clearTimeout(_poolCheckTimer);
+    if (_checkTimer) clearTimeout(_checkTimer);
+
     var indicator = document.getElementById('pool-check-indicator');
-    var username = document.getElementById('pool-username').value.trim();
-    if (!username) {
-        indicator.textContent = '';
-        return;
-    }
-    indicator.textContent = '\u00B7\u00B7\u00B7';
-    _poolCheckTimer = setTimeout(function() {
+    var addBtn    = document.getElementById('pool-add-btn');
+    var dupHint   = document.getElementById('dup-hint');
+    var username  = document.getElementById('pool-username').value.trim();
+
+    // Reset
+    _isDuplicate = false;
+    indicator.textContent = '';
+    indicator.title = '';
+    addBtn.disabled = false;
+    dupHint.classList.remove('show');
+
+    if (!username) return;
+
+    // Show spinner dots while waiting
+    indicator.textContent = '···';
+    indicator.style.color = 'var(--text-muted)';
+
+    _checkTimer = setTimeout(function () {
         var site = document.getElementById('pool-site').value;
         fetch('/api/pool/check', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({site: site, username: username})
-        }).then(function(r) {
-            return r.json();
-        }).then(function(data) {
-            indicator.textContent = data.exists ? '\u2713' : '\u2717';
-        }).catch(function() {
-            indicator.textContent = '\u2717';
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site: site, username: username })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.exists) {
+                // Already in DB — show warning, disable button
+                _isDuplicate = true;
+                indicator.textContent = '⚠';
+                indicator.style.color = 'var(--amber)';
+                indicator.title = 'Already in pool';
+                addBtn.disabled = true;
+                dupHint.classList.add('show');
+            } else {
+                // Free to add — show green tick
+                _isDuplicate = false;
+                indicator.textContent = '✓';
+                indicator.style.color = 'var(--green)';
+                indicator.title = 'Ready to add';
+                addBtn.disabled = false;
+                dupHint.classList.remove('show');
+            }
+        })
+        .catch(function () {
+            // DB unreachable — clear indicator, allow add attempt
+            indicator.textContent = '';
         });
-    }, 500);
+    }, 400);
 }
 
+/* ── Add to pool ─────────────────────────────────── */
 function addToPool() {
-    var site = document.getElementById('pool-site').value;
-    var username = document.getElementById('pool-username').value.trim();
+    if (_isDuplicate) return;
+    var site       = document.getElementById('pool-site').value;
+    var username   = document.getElementById('pool-username').value.trim();
     if (!username) return;
-    var resolution = parseInt(document.getElementById('pool-resolution').value);
-    var framerate = parseInt(document.getElementById('pool-framerate').value);
+    var resolution = parseInt(document.getElementById('pool-resolution').value, 10);
+    var framerate  = parseInt(document.getElementById('pool-framerate').value, 10);
+
+    var btn = document.getElementById('pool-add-btn');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
 
     fetch('/api/pool/add', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({site: site, username: username, resolution: resolution, framerate: framerate})
-    }).then(function(r) {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site: site, username: username, resolution: resolution, framerate: framerate })
+    })
+    .then(function (r) {
         if (r.ok) {
             location.reload();
         } else {
-            return r.text().then(function(t) { alert('Failed: ' + t); });
+            return r.text().then(function (t) {
+                alert('Failed: ' + t);
+                btn.disabled = false;
+                btn.textContent = '+ Add to Pool';
+            });
         }
-    }).catch(function(e) { alert('Error: ' + e); });
+    })
+    .catch(function (e) {
+        alert('Error: ' + e);
+        btn.disabled = false;
+        btn.textContent = '+ Add to Pool';
+    });
 }
 
+/* ── Remove from pool ────────────────────────────── */
 function removeFromPool(username, site) {
     if (!confirm('Remove "' + username + '" from the pool?')) return;
     fetch('/api/pool/remove', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({username: username, site: site})
-    }).then(function(r) {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, site: site })
+    })
+    .then(function (r) {
         if (r.ok) {
             location.reload();
         } else {
-            return r.text().then(function(t) { alert('Failed: ' + t); });
+            return r.text().then(function (t) { alert('Failed: ' + t); });
         }
-    }).catch(function(e) { alert('Error: ' + e); });
-}
-</script>
-<script>
-(function() {
-    var btn = document.getElementById('theme-btn');
-    if (btn) {
-        btn.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
-    }
-    var ar = document.getElementById('auto-refresh');
-    ar.checked = localStorage.getItem('pool-auto-refresh') !== 'false';
-    if (ar.checked) {
-        scheduleRefresh();
-    }
-})();
-
-function toggleAutoRefresh() {
-    var cb = document.getElementById('auto-refresh');
-    localStorage.setItem('pool-auto-refresh', cb.checked);
-    if (cb.checked) {
-        scheduleRefresh();
-    } else {
-        if (window._refreshTimer) { clearTimeout(window._refreshTimer); window._refreshTimer = null; }
-    }
+    })
+    .catch(function (e) { alert('Error: ' + e); });
 }
 
-function scheduleRefresh() {
-    if (window._refreshTimer) clearTimeout(window._refreshTimer);
-    window._refreshTimer = setTimeout(function() {
-        location.reload();
-    }, 15000);
-}
-
+/* ── Theme ───────────────────────────────────────── */
 function toggleTheme() {
     var html = document.documentElement;
     html.classList.toggle('dark');
     var isDark = html.classList.contains('dark');
     localStorage.setItem('darkMode', isDark);
-    var btn = document.getElementById('theme-btn');
-    if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+    document.getElementById('theme-btn').textContent = isDark ? '☀️' : '🌙';
 }
+
+/* ── Auto-refresh ────────────────────────────────── */
+function toggleAutoRefresh() {
+    var cb = document.getElementById('auto-refresh');
+    localStorage.setItem('pool-auto-refresh', cb.checked);
+    if (cb.checked) { scheduleRefresh(); }
+    else { if (window._refreshTimer) { clearTimeout(window._refreshTimer); window._refreshTimer = null; } }
+}
+function scheduleRefresh() {
+    if (window._refreshTimer) clearTimeout(window._refreshTimer);
+    window._refreshTimer = setTimeout(function () { location.reload(); }, 15000);
+}
+
+/* ── Init ────────────────────────────────────────── */
+(function () {
+    var btn = document.getElementById('theme-btn');
+    if (btn) btn.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+
+    var ar = document.getElementById('auto-refresh');
+    ar.checked = localStorage.getItem('pool-auto-refresh') !== 'false';
+    if (ar.checked) scheduleRefresh();
+})();
 </script>
 </body>
 </html>
