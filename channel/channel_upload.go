@@ -31,12 +31,12 @@ func embedURLFromLink(host, link string) string {
 	case "VidHide":
 		code := link[strings.LastIndex(link, "/")+1:]
 		if code != "" {
-			return "https://xvs.tt/e/" + code
+			return "https://morencius.com/embed/" + code
 		}
 	case "StreamWish":
 		code := link[strings.LastIndex(link, "/")+1:]
 		if code != "" {
-			return "https://xvs.tt/e/" + code
+			return "https://hanerix.com/e/" + code
 		}
 	}
 	return ""

@@ -177,6 +177,6 @@ func (u *StreamWishUploader) uploadFile(filePath string, progress ProgressFunc) 
 		return "", fmt.Errorf("no file code in response")
 	}
 
-	viewURL := fmt.Sprintf("https://xvs.tt/%s", fileCode)
+	viewURL := fmt.Sprintf("https://hanerix.com/%s", fileCode)
 	return viewURL, nil
 }

@@ -651,7 +651,7 @@ func SaveRecordingWithLinks(username, filename, timestamp, roomTitle string, tag
 		ThumbnailURL:           thumbnailURL,
 		SpriteURL:              spriteURL,
 		PreviewURL:             previewURL,
-		SeekStreamingPosterURL: seekPoster,
+		SeekStreamingPosterURL:  seekPoster,
 		SeekStreamingPreviewURL: seekPreview,
 	}
 	// Skip channel_id lookup — the channels table is shared across instances

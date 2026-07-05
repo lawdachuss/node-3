@@ -394,17 +394,20 @@ func Updates(c *gin.Context) {
 
 // UpdateConfigRequest represents the request body for updating configuration.
 type UpdateConfigRequest struct {
-	Cookies         string `json:"cookies" form:"cookies"`
-	SessionID       string `json:"sessionid" form:"sessionid"`
-	Csrftoken       string `json:"csrftoken" form:"csrftoken"`
-	CfClearance     string `json:"cf_clearance" form:"cf_clearance"`
-	UserAgent       string `json:"user_agent" form:"user_agent"`
-	VoeSXAPIKey     string `json:"voesx_api_key" form:"voesx_api_key"`
-	StreamtapeLogin string `json:"streamtape_login" form:"streamtape_login"`
-	StreamtapeKey   string `json:"streamtape_key" form:"streamtape_key"`
-	MixdropEmail    string `json:"mixdrop_email" form:"mixdrop_email"`
-	MixdropToken    string `json:"mixdrop_token" form:"mixdrop_token"`
-	StripchatPDKey  string `json:"stripchat_pdkey" form:"stripchat_pdkey"`
+	Cookies          string `json:"cookies" form:"cookies"`
+	SessionID        string `json:"sessionid" form:"sessionid"`
+	Csrftoken        string `json:"csrftoken" form:"csrftoken"`
+	CfClearance      string `json:"cf_clearance" form:"cf_clearance"`
+	UserAgent        string `json:"user_agent" form:"user_agent"`
+	VoeSXAPIKey      string `json:"voesx_api_key" form:"voesx_api_key"`
+	StreamtapeLogin  string `json:"streamtape_login" form:"streamtape_login"`
+	StreamtapeKey    string `json:"streamtape_key" form:"streamtape_key"`
+	MixdropEmail     string `json:"mixdrop_email" form:"mixdrop_email"`
+	MixdropToken     string `json:"mixdrop_token" form:"mixdrop_token"`
+	SeekStreamingKey string `json:"seekstreaming_key" form:"seekstreaming_key"`
+	VidHideAPIKey    string `json:"vidhide_api_key" form:"vidhide_api_key"`
+	StreamWishAPIKey string `json:"streamwish_api_key" form:"streamwish_api_key"`
+	StripchatPDKey   string `json:"stripchat_pdkey" form:"stripchat_pdkey"`
 }
 
 // UpdateConfig updates the server configuration from the Web UI form or API POST.
@@ -468,9 +471,11 @@ func UpdateConfig(c *gin.Context) {
 		server.ConfigMu.Unlock()
 	}
 
-	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop)
-	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" {
-		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken)
+	// Update uploader credentials
+	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" ||
+		req.SeekStreamingKey != "" || req.VidHideAPIKey != "" || req.StreamWishAPIKey != "" {
+		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken,
+			req.SeekStreamingKey, req.VidHideAPIKey, req.StreamWishAPIKey)
 	}
 
 	if err := server.SaveSettings(); err != nil {
@@ -936,6 +941,16 @@ func embedURLForHostLink(host, link string) string {
 	if strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/") {
 		return ""
 	}
+	if strings.Contains(normalizedHost, "vidhide") || strings.Contains(normalizedLink, "morencius.com/") {
+		if code := extractFileCode(link); code != "" {
+			return "https://morencius.com/embed/" + code
+		}
+	}
+	if strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/") {
+		if code := extractFileCode(link); code != "" {
+			return "https://hanerix.com/e/" + code
+		}
+	}
 	return ""
 }
 
@@ -965,6 +980,16 @@ func videoURLForHostLink(host, link string) string {
 		return link
 	case strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/"):
 		return ""
+	case strings.Contains(normalizedHost, "vidhide") || strings.Contains(normalizedLink, "morencius.com/"):
+		if code := extractFileCode(link); code != "" {
+			return "https://morencius.com/embed/" + code
+		}
+		return link
+	case strings.Contains(normalizedHost, "streamwish") || strings.Contains(normalizedLink, "hanerix.com/"):
+		if code := extractFileCode(link); code != "" {
+			return "https://hanerix.com/e/" + code
+		}
+		return link
 	default:
 		return ""
 	}

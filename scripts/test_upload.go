@@ -49,7 +49,7 @@ func main() {
 		log.Fatalf("loading .env: %v", err)
 	}
 
-	videoPath := "videos/357054_medium.mp4"
+	videoPath := "videos/completed/357054_medium.mp4"
 	if _, err := os.Stat(videoPath); os.IsNotExist(err) {
 		log.Fatalf("video not found: %s", videoPath)
 	}

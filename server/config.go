@@ -15,34 +15,40 @@ var ConfigMu sync.RWMutex
 var StartTime = time.Now()
 
 type persistedSettings struct {
-	Cookies         string `json:"cookies"`
-	SessionID       string `json:"sessionid,omitempty"`
-	Csrftoken       string `json:"csrftoken,omitempty"`
-	CfClearance     string `json:"cf_clearance,omitempty"`
-	UserAgent       string `json:"user_agent"`
-	VoeSXAPIKey     string `json:"voesx_api_key,omitempty"`
-	StreamtapeLogin string `json:"streamtape_login,omitempty"`
-	StreamtapeKey   string `json:"streamtape_key,omitempty"`
-	MixdropEmail    string `json:"mixdrop_email,omitempty"`
-	MixdropToken    string `json:"mixdrop_token,omitempty"`
-	StripchatPDKey  string `json:"stripchat_pdkey,omitempty"`
+	Cookies          string `json:"cookies"`
+	SessionID        string `json:"sessionid,omitempty"`
+	Csrftoken        string `json:"csrftoken,omitempty"`
+	CfClearance      string `json:"cf_clearance,omitempty"`
+	UserAgent        string `json:"user_agent"`
+	VoeSXAPIKey      string `json:"voesx_api_key,omitempty"`
+	StreamtapeLogin  string `json:"streamtape_login,omitempty"`
+	StreamtapeKey    string `json:"streamtape_key,omitempty"`
+	MixdropEmail     string `json:"mixdrop_email,omitempty"`
+	MixdropToken     string `json:"mixdrop_token,omitempty"`
+	SeekStreamingKey string `json:"seekstreaming_key,omitempty"`
+	VidHideAPIKey    string `json:"vidhide_api_key,omitempty"`
+	StreamWishAPIKey string `json:"streamwish_api_key,omitempty"`
+	StripchatPDKey   string `json:"stripchat_pdkey,omitempty"`
 }
 
 // SaveSettings writes the runtime cookies and user-agent to Supabase.
 func SaveSettings() error {
 	ConfigMu.RLock()
 	s := persistedSettings{
-		Cookies:         Config.Cookies,
-		SessionID:       Config.SessionID,
-		Csrftoken:       Config.Csrftoken,
-		CfClearance:     Config.CfClearance,
-		UserAgent:       Config.UserAgent,
-		VoeSXAPIKey:     Config.VoeSXAPIKey,
-		StreamtapeLogin: Config.StreamtapeLogin,
-		StreamtapeKey:   Config.StreamtapeKey,
-		MixdropEmail:    Config.MixdropEmail,
-		MixdropToken:    Config.MixdropToken,
-		StripchatPDKey:  Config.StripchatPDKey,
+		Cookies:          Config.Cookies,
+		SessionID:        Config.SessionID,
+		Csrftoken:        Config.Csrftoken,
+		CfClearance:      Config.CfClearance,
+		UserAgent:        Config.UserAgent,
+		VoeSXAPIKey:      Config.VoeSXAPIKey,
+		StreamtapeLogin:  Config.StreamtapeLogin,
+		StreamtapeKey:    Config.StreamtapeKey,
+		MixdropEmail:     Config.MixdropEmail,
+		MixdropToken:     Config.MixdropToken,
+		SeekStreamingKey: Config.SeekStreamingKey,
+		VidHideAPIKey:    Config.VidHideAPIKey,
+		StreamWishAPIKey: Config.StreamWishAPIKey,
+		StripchatPDKey:   Config.StripchatPDKey,
 	}
 	ConfigMu.RUnlock()
 
@@ -100,6 +106,15 @@ func LoadSettings() error {
 	if s.MixdropToken != "" {
 		Config.MixdropToken = s.MixdropToken
 	}
+	if s.SeekStreamingKey != "" {
+		Config.SeekStreamingKey = s.SeekStreamingKey
+	}
+	if s.VidHideAPIKey != "" {
+		Config.VidHideAPIKey = s.VidHideAPIKey
+	}
+	if s.StreamWishAPIKey != "" {
+		Config.StreamWishAPIKey = s.StreamWishAPIKey
+	}
 	if s.StripchatPDKey != "" {
 		Config.StripchatPDKey = s.StripchatPDKey
 	}
@@ -132,7 +147,7 @@ func extractCookie(cookieStr, name string) string {
 }
 
 // UpdateUploaderCredentials updates upload service credentials and protects concurrent access with a mutex.
-func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken string) {
+func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, seekStreamingKey, vidHideAPIKey, streamWishAPIKey string) {
 	ConfigMu.Lock()
 	if voeSXAPIKey != "" {
 		Config.VoeSXAPIKey = voeSXAPIKey
@@ -148,6 +163,15 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 	}
 	if mixdropToken != "" {
 		Config.MixdropToken = mixdropToken
+	}
+	if seekStreamingKey != "" {
+		Config.SeekStreamingKey = seekStreamingKey
+	}
+	if vidHideAPIKey != "" {
+		Config.VidHideAPIKey = vidHideAPIKey
+	}
+	if streamWishAPIKey != "" {
+		Config.StreamWishAPIKey = streamWishAPIKey
 	}
 	ConfigMu.Unlock()
 }
