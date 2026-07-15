@@ -193,7 +193,7 @@ func (ch *Channel) processPendingFile(pf pendingFile) {
 			if normErr != nil {
 				ch.Warn("normalize: could not reset timestamps for %s: %v — uploading with original timestamps", filepath.Base(videoPath), normErr)
 			}
-			if !pf.skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+			if ch.handleMinDurationAndMerge(normalized, pf.skipMinDuration) {
 				return // video was deferred to pending or merged+uploaded
 			}
 			ch.CompressFile(normalized)
@@ -203,7 +203,7 @@ func (ch *Channel) processPendingFile(pf pendingFile) {
 			if normErr != nil {
 				ch.Warn("normalize: could not reset timestamps for %s: %v — uploading with original timestamps", filepath.Base(videoPath), normErr)
 			}
-			if !pf.skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+			if ch.handleMinDurationAndMerge(normalized, pf.skipMinDuration) {
 				return // video was deferred to pending or merged+uploaded
 			}
 			ch.MoveToOutputDir(normalized)
@@ -229,7 +229,7 @@ func (ch *Channel) processPendingMuxPair(videoPath, audioPath string, skipMinDur
 		if normErr != nil {
 			ch.Warn("normalize: could not reset timestamps for %s: %v — uploading with original timestamps", filepath.Base(audioPath), normErr)
 		}
-		if !skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+		if ch.handleMinDurationAndMerge(normalized, skipMinDuration) {
 			return
 		}
 		if ch.Config.Compress {
@@ -249,7 +249,7 @@ func (ch *Channel) processPendingMuxPair(videoPath, audioPath string, skipMinDur
 		if normErr != nil {
 			ch.Warn("normalize: could not reset timestamps for %s: %v — uploading with original timestamps", filepath.Base(videoPath), normErr)
 		}
-		if !skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+		if ch.handleMinDurationAndMerge(normalized, skipMinDuration) {
 			return
 		}
 		if ch.Config.Compress {
@@ -291,7 +291,7 @@ func (ch *Channel) processPendingMuxPair(videoPath, audioPath string, skipMinDur
 		if normErr != nil {
 			ch.Warn("normalize: could not reset timestamps on muxed output %s: %v — uploading with original timestamps", filepath.Base(finalOutput), normErr)
 		}
-		if !skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+		if ch.handleMinDurationAndMerge(normalized, skipMinDuration) {
 			return // video was deferred to pending or merged+uploaded
 		}
 		ch.CompressFile(normalized)
@@ -300,7 +300,7 @@ func (ch *Channel) processPendingMuxPair(videoPath, audioPath string, skipMinDur
 		if normErr != nil {
 			ch.Warn("normalize: could not reset timestamps on muxed output %s: %v — uploading with original timestamps", filepath.Base(finalOutput), normErr)
 		}
-		if !skipMinDuration && ch.handleMinDurationAndMerge(normalized) {
+		if ch.handleMinDurationAndMerge(normalized, skipMinDuration) {
 			return // video was deferred to pending or merged+uploaded
 		}
 		ch.MoveToOutputDir(normalized)
@@ -470,11 +470,11 @@ func (ch *Channel) MoveToOutputDir(srcPath string) string {
 	// symlinks or junctions).  If the dest is missing, fall back to
 	// the original location.
 	if _, statErr := os.Stat(destPath); statErr != nil {
-		ch.Error("output-dir: post-move stat of dest %s failed: %v — uploading from original location (%s)", destPath, statErr, resolvePathForLog(srcPath))
-		MarkUploadDone(destPath) // release the failed-dest marker before marking src
-		MarkUploadInFlight(srcPath)
-		enqueue(srcPath)
-		return srcPath
+		ch.Error("output-dir: post-move stat of dest %s failed: %v — uploading from destination path (%s)", destPath, statErr, resolvePathForLog(destPath))
+		MarkUploadDone(destPath) // release the failed-dest marker before re-marking dest
+		MarkUploadInFlight(destPath)
+		enqueue(destPath)
+		return destPath
 	}
 	ch.Info("output-dir: moved %s -> %s", filepath.Base(srcPath), destPath)
 	enqueue(destPath)
@@ -714,9 +714,19 @@ func MaybeDeferToPending(filePath string) bool {
 
 	username := extractUsernameFromFilename(filepath.Base(filePath))
 	if username == "" {
-		// Can't determine the user — upload directly rather than
-		// risking cross-channel contamination in "unknown" pending dir.
-		return false
+		// Can't attribute the file to a channel. We still must honour the
+		// minimum-duration rule, so probe it directly. Short/unknown files are
+		// isolated in a dedicated pending dir (never merged with any channel
+		// and never auto-uploaded) instead of being uploaded or contaminating
+		// another channel's pending directory.
+		if minDur > 0 {
+			if d, e := VideoDurationSeconds(filePath); e != nil || d < float64(minDur) {
+				log.Printf("[cleanup] min-duration: unowned %s (dur=%.1f, err=%v) — isolating, no upload", filepath.Base(filePath), d, e)
+				_ = moveToPendingDir(filePath, "_unknown")
+				return true
+			}
+		}
+		return false // long enough (or min-duration disabled) — upload directly
 	}
 
 	dur, err := VideoDurationSeconds(filePath)
@@ -764,6 +774,19 @@ func CleanupOrphanedFiles() {
 	dirs := []string{"videos"}
 	if server.Config.OutputDir != "" {
 		dirs = append(dirs, server.Config.OutputDir)
+	}
+
+	// Files that still have an in-progress (non-Done) pipeline state are owned
+	// by the pipeline. The orphan scanner must not delete or re-upload them —
+	// doing so would drop an already-uploaded recording whose metadata save is
+	// still pending (e.g. during a DB partition), or race the pipeline.
+	owned := map[string]bool{}
+	if states, stErr := server.LoadAllPipelineStates(); stErr == nil {
+		for _, s := range states {
+			if s.CurrentStage != StageDone.String() && s.FilePath != "" {
+				owned[s.FilePath] = true
+			}
+		}
 	}
 
 	for _, dir := range dirs {
@@ -829,12 +852,29 @@ func CleanupOrphanedFiles() {
 
 				// Check journal to skip files that were already fully uploaded
 				if IsAlreadyFullyUploaded(info.path) {
+					// A pipeline still owns this file (uploads done, metadata
+					// pending, or in-flight) — leave it for the pipeline to
+					// finish rather than deleting an already-uploaded recording.
+					if owned[info.path] {
+						recoveryLogf(info.name, "has an in-progress pipeline state — leaving local copy for the pipeline")
+						return
+					}
 					recoveryLogf(info.name, "all hosts already have this file per journal — removing local copy")
 					os.Remove(info.path)
 					DeleteSidecarFiles(info.path)
 					_ = stem
 					return
 				}
+
+				// Skip if another routine (watcher/pipeline) is already
+				// uploading this file, and claim it ourselves so the watcher
+				// won't also pick it up (mutual exclusion via the in-flight map).
+				if IsUploadInFlight(info.path) {
+					_ = stem
+					return
+				}
+				MarkUploadInFlight(info.path)
+				defer MarkUploadDone(info.path)
 
 				if MaybeDeferToPending(info.path) {
 					_ = stem
@@ -862,9 +902,11 @@ func CleanupOrphanedFiles() {
 					continue
 				}
 				// No muxed result either — upload the video part on its own.
-				if !MaybeDeferToPending(vInfo.path) {
+				if !IsUploadInFlight(vInfo.path) && !MaybeDeferToPending(vInfo.path) {
+					MarkUploadInFlight(vInfo.path)
 					thumbURL, spriteURL, previewURL := GenerateThumbnailForFile(vInfo.path)
 					UploadOrphanedFile(vInfo.path, thumbURL, spriteURL, previewURL)
+					MarkUploadDone(vInfo.path)
 				}
 				DeleteSidecarFiles(vInfo.path)
 				continue
@@ -879,6 +921,12 @@ func CleanupOrphanedFiles() {
 					}
 					<-sem
 				}()
+
+				if IsUploadInFlight(vInfo.path) {
+					return
+				}
+				MarkUploadInFlight(vInfo.path)
+				defer MarkUploadDone(vInfo.path)
 
 				// Mux the pair
 				muxedPath := filepath.Join(dir, stem+".video.muxed.mp4")
@@ -900,8 +948,10 @@ func CleanupOrphanedFiles() {
 
 				// Generate thumbnails, upload, and clean up
 				if !MaybeDeferToPending(muxedPath) {
+					MarkUploadInFlight(muxedPath)
 					thumbURL, spriteURL, previewURL := GenerateThumbnailForFile(muxedPath)
 					UploadOrphanedFile(muxedPath, thumbURL, spriteURL, previewURL)
+					MarkUploadDone(muxedPath)
 				}
 				DeleteSidecarFiles(muxedPath)
 				os.Remove(muxedPath)
@@ -1596,6 +1646,30 @@ func collectPendingSegments(username string) []string {
 	return collectPendingSegmentsInDir(dir)
 }
 
+// segmentsForChannel returns the pending segments that genuinely belong to
+// username. Any segment whose filename actually indicates a DIFFERENT channel
+// (a file that was misrouted into this channel's pending directory) is excluded
+// and best-effort relocated to its correct channel's pending dir, so two
+// channels' recordings are never merged into a single file.
+func segmentsForChannel(username string) []string {
+	all := collectPendingSegments(username)
+	var keep, stray []string
+	for _, s := range all {
+		u := extractUsernameFromFilename(filepath.Base(s))
+		if u == "" || u == username {
+			keep = append(keep, s)
+		} else {
+			stray = append(stray, s)
+		}
+	}
+	for _, s := range stray {
+		if correct := extractUsernameFromFilename(filepath.Base(s)); correct != "" && correct != username {
+			_ = moveToPendingDir(s, correct)
+		}
+	}
+	return keep
+}
+
 // collectPendingSegmentsInDir returns sorted absolute paths of actual video
 // files in dir, filtering out sidecar files, zero-byte files, and
 // merged-*.mp4 files that were already consolidated.
@@ -1848,7 +1922,7 @@ func mergeVideos(inputs []string, outputPath string) error {
 // Returns true if the video was handled (deferred to pending or merged+uploaded)
 // so the caller should stop processing it.  Returns false when the caller
 // should proceed with its normal upload logic.
-func (ch *Channel) handleMinDurationAndMerge(videoPath string) bool {
+func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) bool {
 	mu := pendingMu(ch.Config.Username)
 	mu.Lock()
 
@@ -1881,7 +1955,7 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string) bool {
 	if dur >= float64(minDur) {
 		// Video is long enough. Before uploading, check if there are
 		// pending segments to merge with.
-		segments := collectPendingSegments(ch.Config.Username)
+		segments := segmentsForChannel(ch.Config.Username)
 		if len(segments) == 0 {
 			mu.Unlock()
 			return false // no pending — proceed normally
@@ -1930,6 +2004,16 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string) bool {
 			ch.Info("min-duration: merged -> %s (%.1fs), proceeding with upload", filepath.Base(mergedPath), mergedDur)
 			ch.MoveToOutputDir(mergedPath)
 		}
+		return true
+	}
+
+	// Video is too short.
+	if skipDefer {
+		// Pausing/stopping: there is no future recording to merge with, and
+		// uploads below the minimum duration are not allowed, so the short
+		// segment is dropped rather than uploaded or deferred.
+		ch.Info("min-duration: %s is %.1fs (< %ds) — skipped (no upload on stop/pause)", filepath.Base(videoPath), dur, minDur)
+		mu.Unlock()
 		return true
 	}
 
@@ -2043,6 +2127,12 @@ func processAllPendingSegments() {
 			}
 			username := ud.Name()
 
+			// Never auto-process the isolated "unknown" bucket — its files are
+			// deliberately kept out of any channel's merges/uploads.
+			if username == "_unknown" {
+				continue
+			}
+
 			// Skip if this channel is actively recording — its own
 			// handleMinDurationAndMerge will process pending segments.
 			if server.Manager != nil {
@@ -2061,7 +2151,7 @@ func processAllPendingSegments() {
 			mu := pendingMu(username)
 
 			mu.Lock()
-			segments := collectPendingSegmentsInDir(filepath.Join(pendingRoot, username))
+			segments := segmentsForChannel(username)
 			if len(segments) < 1 {
 				mu.Unlock()
 				continue
@@ -2099,6 +2189,17 @@ func processAllPendingSegments() {
 					_ = os.Remove(s)
 				}
 				_ = os.Remove(pendingSegmentsDir(username))
+				continue
+			}
+
+			// Minimum duration is enforced even during orphan cleanup: never
+			// upload a merged result below the threshold. If it's too short,
+			// drop the merged file and leave the individual segments pending
+			// so they can accumulate with future recordings.
+			mergedDur, probeErr := VideoDurationSeconds(mergedPath)
+			if probeErr != nil || mergedDur < float64(minDur) {
+				recoveryLogf(mergedPath, "recovery: merged %.1fs (< %ds) — NOT uploading (min-duration enforced); keeping segments pending", mergedDur, minDur)
+				os.Remove(mergedPath)
 				continue
 			}
 

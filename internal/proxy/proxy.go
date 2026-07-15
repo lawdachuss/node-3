@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,29 @@ var proxySources = []string{
 	"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
 	"https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
 	"https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/countries/nl/socks5/data.txt",
+}
+
+// allowedProxyCountries is the set of egress countries known to NOT trigger
+// Chaturbate's face-id verification. Dynamic discovery only accepts proxies
+// whose egress IP geolocates to one of these — every request must egress
+// through a face-id-free region or Cloudflare will challenge it (and the
+// GitHub Actions runner IPs always get challenged). Override with the
+// PROXY_ALLOWED_COUNTRIES env var (comma-separated ISO-3166 codes, e.g. "NL").
+var allowedProxyCountries = loadAllowedProxyCountries()
+
+func loadAllowedProxyCountries() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv("PROXY_ALLOWED_COUNTRIES"))
+	if raw == "" {
+		raw = "NL"
+	}
+	m := make(map[string]bool)
+	for _, c := range strings.Split(raw, ",") {
+		c = strings.TrimSpace(strings.ToUpper(c))
+		if c != "" {
+			m[c] = true
+		}
+	}
+	return m
 }
 
 var (
@@ -141,14 +165,27 @@ func testProxy(ctx context.Context, proxyURL string) ProxyResult {
 		return ProxyResult{URL: proxyURL, OK: false}
 	}
 
-	// Chaturbate reachability
-	ok := checkChaturbate(ctx, client)
+	// Chaturbate reachability + Cloudflare/face-id challenge check. This is the
+	// authoritative signal that the proxy's egress can actually bypass the
+	// face-id verification the GitHub Actions runner IPs would otherwise hit.
+	if !checkChaturbate(ctx, client) {
+		return ProxyResult{URL: proxyURL, EgressIP: egressIP, OK: false}
+	}
+
+	// Region gate: only keep egress from known face-id-free countries. Geo
+	// lookup is done last (and only for proxies that already passed) to limit
+	// rate-limited lookups. If geolocation is unavailable we trust the
+	// Chaturbate check above; if it resolves to a disallowed region we drop it.
+	country := lookupCountry(egressIP)
+	if country != "" && !allowedProxyCountries[strings.ToUpper(country)] {
+		return ProxyResult{URL: proxyURL, EgressIP: egressIP, Country: country, OK: false}
+	}
 
 	return ProxyResult{
 		URL:      proxyURL,
 		EgressIP: egressIP,
-		Country:  lookupCountry(egressIP),
-		OK:       ok,
+		Country:  country,
+		OK:       true,
 	}
 }
 
@@ -185,12 +222,43 @@ func checkChaturbate(ctx context.Context, client *httpcloak.Client) bool {
 		return false
 	}
 
+	// Reject Cloudflare/face-id redirect challenges.
 	if loc, ok := resp.Headers["Location"]; ok && len(loc) > 0 {
 		lower := strings.ToLower(loc[0])
 		if strings.Contains(lower, "verify") || strings.Contains(lower, "captcha") ||
 			strings.Contains(lower, "face") || strings.Contains(lower, "human") {
 			return false
 		}
+	}
+
+	// Reject challenge pages served as HTTP 200 (Cloudflare "Just a moment",
+	// "verify you are human", captcha/interstitial forms). The markers appear
+	// near the top of the document, so a capped read is sufficient.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"just a moment",
+		"verify you are human",
+		"verify you're human",
+		"checking your browser",
+		"attention required",
+		"captcha",
+		"cf-chl",
+		"challenge-platform",
+		"why am i seeing this",
+		"ddos",
+		"face verification",
+		"verify your identity",
+		"enable javascript and cookies",
+	} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+
+	// A real page has substantial content; tiny stubs are challenge/error pages.
+	if len(body) < 500 {
+		return false
 	}
 	return true
 }

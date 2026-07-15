@@ -1162,6 +1162,12 @@ func RetryOrphan(c *gin.Context) {
 	}
 
 	results := make([]result, len(req.Paths))
+
+	// Bound concurrency so a large batch can't spawn one goroutine per file and
+	// exhaust the ffmpeg semaphore (which would make every generation block and
+	// hang this request).  Up to 4 previews run in parallel; the rest queue.
+	const maxConcurrent = 4
+	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
 	for i, path := range req.Paths {
 		abs, err := filepath.Abs(path)
@@ -1170,8 +1176,10 @@ func RetryOrphan(c *gin.Context) {
 			continue
 		}
 		wg.Add(1)
+		sem <- struct{}{} // acquire a concurrency slot (blocks if 4 already running)
 		go func(idx int, p string) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			defer func() {
 				if r := recover(); r != nil {
 					results[idx] = result{Path: p, Status: "failed", Error: fmt.Sprintf("panic: %v", r)}

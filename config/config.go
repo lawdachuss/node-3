@@ -3,13 +3,14 @@ package config
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-
+	"sync/atomic"
 	"time"
 
 	"github.com/teacat/chaturbate-dvr/entity"
@@ -188,23 +189,54 @@ func FFprobeCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, ffprobeBin(), args...)
 }
 
-// AcquireFFmpeg blocks until a lightweight ffmpeg slot is available.
+// ffmpegAcquireTimeout bounds how long a caller waits for a lightweight ffmpeg
+// slot. The old code blocked forever on the channel send, so a saturated
+// semaphore (e.g. a burst of concurrent preview generations) would hang the
+// entire thumbnail/preview pipeline indefinitely — the "shows a little preview
+// then got stuck" symptom. We now time out, over-subscribe deliberately, and
+// pair the release via ffmpegOverflow so ReleaseFFmpeg never deadlocks.
+const ffmpegAcquireTimeout = 2 * time.Minute
+
+// ffmpegOverflow counts callers that timed out waiting for a slot and therefore
+// never actually took one. ReleaseFFmpeg decrements this instead of pulling from
+// the channel, keeping acquire/release balanced without a per-goroutine token.
+var ffmpegOverflow int64
+
+// AcquireFFmpeg waits (bounded) for a lightweight ffmpeg slot.
 func AcquireFFmpeg() {
-	ffmpegSem <- struct{}{}
+	select {
+	case ffmpegSem <- struct{}{}:
+	case <-time.After(ffmpegAcquireTimeout):
+		atomic.AddInt64(&ffmpegOverflow, 1)
+		log.Printf("WARN [config] ffmpeg semaphore saturated for %s; proceeding without a slot (oversubscribed)", ffmpegAcquireTimeout)
+	}
 }
 
 // ReleaseFFmpeg releases a lightweight ffmpeg slot.
 func ReleaseFFmpeg() {
+	if atomic.LoadInt64(&ffmpegOverflow) > 0 {
+		atomic.AddInt64(&ffmpegOverflow, -1)
+		return
+	}
 	<-ffmpegSem
 }
 
-// AcquireFFmpegHeavy blocks until a CPU-bound compression slot is available.
+// AcquireFFmpegHeavy waits (bounded) for a CPU-bound compression slot.
 func AcquireFFmpegHeavy() {
-	ffmpegHeavySem <- struct{}{}
+	select {
+	case ffmpegHeavySem <- struct{}{}:
+	case <-time.After(ffmpegAcquireTimeout):
+		atomic.AddInt64(&ffmpegOverflow, 1)
+		log.Printf("WARN [config] ffmpeg-heavy semaphore saturated for %s; proceeding without a slot (oversubscribed)", ffmpegAcquireTimeout)
+	}
 }
 
 // ReleaseFFmpegHeavy releases a CPU-bound compression slot.
 func ReleaseFFmpegHeavy() {
+	if atomic.LoadInt64(&ffmpegOverflow) > 0 {
+		atomic.AddInt64(&ffmpegOverflow, -1)
+		return
+	}
 	<-ffmpegHeavySem
 }
 

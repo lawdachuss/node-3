@@ -55,6 +55,10 @@ func channelInfoFingerprint(info *entity.ChannelInfo) string {
 // Manager is responsible for managing channels and their states.
 type Manager struct {
 	Channels sync.Map
+	// draining tracks channels that are currently stopping (after a
+	// reassignment) so we never run two Channel objects for the same username
+	// at once (which would write to the same output paths and double-upload).
+	draining sync.Map
 	SSE      *sse.Server
 
 	// Coordinator for distributed shards/nodes mode (nil in isolated mode).
@@ -432,6 +436,14 @@ func (m *Manager) CreateChannelFromAssignment(ca *database.ChannelAssignment) er
 	conf := coordinator.ConfigFromAssignment(ca)
 	conf.Sanitize()
 
+	// If a previous instance of this channel is still draining its uploads
+	// after a reassignment, wait for it to finish before starting a new one so
+	// we never run two Channel objects for the same username concurrently.
+	if wg, ok := m.draining.Load(conf.Username); ok {
+		wg.(*sync.WaitGroup).Wait()
+		m.draining.Delete(conf.Username)
+	}
+
 	// Check for duplicate
 	if _, loaded := m.Channels.LoadOrStore(conf.Username, channel.New(conf)); loaded {
 		return nil // already exists
@@ -465,7 +477,13 @@ func (m *Manager) RemoveChannelForReassignment(username string) error {
 	}
 
 	m.Channels.Delete(username)
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	m.draining.Store(username, wg)
 	go func() {
+		defer m.draining.Delete(username)
+		defer wg.Done()
 		thing.(*channel.Channel).Stop()
 	}()
 	return nil

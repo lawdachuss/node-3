@@ -612,9 +612,31 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 		}
 	}()
 
-	thumbURL = <-thumbDone
-	spriteURL = <-spriteDone
-	previewURL = <-previewDone
+	// Hard overall deadline so a stuck sub-step (a blocked ffmpeg semaphore
+	// slot, a hung upload, a wedged ffmpeg) can never hang the caller forever.
+	// The old code waited on the three done-channels with no timeout, which is
+	// exactly the "shows a little preview then got stuck" hang. We wait up to
+	// 15 minutes and return whatever completed; the goroutines self-terminate
+	// via their own contexts.
+	overallCtx, overallCancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer overallCancel()
+
+	recv := func(ch chan string) string {
+		select {
+		case v := <-ch:
+			return v
+		case <-overallCtx.Done():
+			return ""
+		}
+	}
+
+	thumbURL = recv(thumbDone)
+	spriteURL = recv(spriteDone)
+	previewURL = recv(previewDone)
+
+	if thumbURL == "" || spriteURL == "" || previewURL == "" {
+		errFn("thumb: generation incomplete (thumb=%q sprite=%q preview=%q) — returning partial result", thumbURL, spriteURL, previewURL)
+	}
 
 	return thumbURL, spriteURL, previewURL
 }

@@ -81,7 +81,6 @@ type Channel struct {
 	UploadWg          sync.WaitGroup // tracks in-flight upload goroutines for graceful shutdown
 	monitorWg         sync.WaitGroup // tracks the Monitor goroutine lifetime
 	pauseWg           sync.WaitGroup // tracks the CheckOnlineWhilePaused goroutine
-	uploadSem         chan struct{}  // per-channel upload semaphore (1 at a time)
 	PipelineQueue     *PipelineQueue // ordered pipeline for thumbnails → upload → metadata → cleanup
 
 	// Upload progress tracking — updated by the pipeline worker goroutines.
@@ -116,7 +115,6 @@ func New(conf *entity.ChannelConfig) *Channel {
 		Config:          conf,
 		CancelFunc:      func() {},
 		PauseCancelFunc: func() {},
-		uploadSem:       make(chan struct{}, 1),
 		RoomStatus:      "offline",
 	}
 	ch.PipelineQueue = NewPipelineQueue(ch)
@@ -548,9 +546,20 @@ func (ch *Channel) Resume(_ int) {
 
 // WaitMonitor blocks until the Monitor goroutine has fully exited.
 // By the time it returns, Cleanup() has already run and any pending
-// files have been queued into UploadWg.
+// files have been queued into UploadWg. It is bounded so a Monitor hung on a
+// stalled proxy/CDN request that ignores context cancellation cannot block
+// Stop() forever (mirrors the bounded wait already used by Resume).
 func (ch *Channel) WaitMonitor() {
-	ch.monitorWg.Wait()
+	done := make(chan struct{})
+	go func() {
+		ch.monitorWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		ch.Warn("WaitMonitor: monitor did not exit within 60s (likely hung on a stalled request); proceeding with stop")
+	}
 }
 
 // ProcessPending waits for any in-flight async processing from Cleanup(CloseProcess)

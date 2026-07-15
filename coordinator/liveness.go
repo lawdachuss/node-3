@@ -71,6 +71,22 @@ func (c *Coordinator) runLiveCheck() {
 	for _, ca := range assignments {
 		if c.LiveCheck.IsLive(ctx, ca.Site, ca.Username) {
 			liveUsernames = append(liveUsernames, ca.Username)
+			// Authoritatively mark our own live channels as recording so the
+			// shuffle logic can protect them from being moved.
+			if ca.AssignedNode == c.NodeID {
+				if err := c.Client.MarkChannelRecording(ca.Username, ca.Site); err != nil {
+					log.Printf("[coordinator] live check: mark recording error for %s: %v", ca.Username, err)
+				}
+			}
+		} else if ca.AssignedNode == c.NodeID && ca.Status == "recording" {
+			// Own channel went offline: downgrade the stale 'recording' status so
+			// the shuffle/release logic can move it again. Without this, a channel
+			// that was ever live stays pinned as 'recording' forever and is never
+			// released by ReleaseExcessOfflineChannels (which excludes 'recording'),
+			// defeating the offline-shuffle feature.
+			if err := c.Client.SetChannelStatus(ca.Username, ca.Site, "offline"); err != nil {
+				log.Printf("[coordinator] live check: set offline error for %s: %v", ca.Username, err)
+			}
 		}
 	}
 

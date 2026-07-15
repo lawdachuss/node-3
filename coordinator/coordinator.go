@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/teacat/chaturbate-dvr/database"
 	"github.com/teacat/chaturbate-dvr/entity"
@@ -63,6 +64,7 @@ type Coordinator struct {
 	wg       sync.WaitGroup
 	started  bool
 	draining bool // set during graceful shutdown; prevents heartbeat from clobbering status
+	fenced   bool // set when DB is unreachable; stops local recording to avoid duplicate capture
 	mu       sync.Mutex
 }
 
@@ -101,6 +103,17 @@ func (c *Coordinator) Start(ctx context.Context) {
 	c.StartClaimLoop(ctx)
 	c.StartLiveCheckLoop(ctx)
 	c.StartReaperLoop(ctx)
+	c.StartOfflineShuffleLoop(ctx)
+	c.StartDeadlineMigrationLoop(ctx)
+	c.StartReconcileLoop(ctx)
+}
+
+// isActive reports whether this node is currently able to own/claim channels.
+// A draining or fenced (partitioned) node must not claim or migrate channels.
+func (c *Coordinator) isActive() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.draining && !c.fenced
 }
 
 // Stop gracefully shuts down all coordinator loops and deregisters the node.
@@ -171,6 +184,7 @@ func (c *Coordinator) Register() {
 		Status:          "online",
 		CurrentLoad:     0,
 		WebURL:          webURL,
+		SessionDeadline: computeSessionDeadline(),
 	}
 
 	if err := c.Client.UpsertNode(node); err != nil {
@@ -240,4 +254,25 @@ func channelPoolMode() string {
 		return entity.PoolModeIsolated
 	}
 	return mode
+}
+
+// computeSessionDeadline determines when this node will be forcibly killed so
+// the coordinator can migrate its channels away beforehand. Priority:
+//  1. SESSION_DURATION env (Go duration string, e.g. "5h20m") — explicit.
+//  2. GITHUB_RUN_ID present (CI runner, hard 6h cap) — use a buffer BEFORE the
+//     workflow's 348-minute self-cancel so migration fires while we're still up.
+//  3. Neither — nil (permanent node, no deadline).
+func computeSessionDeadline() *time.Time {
+	if d := os.Getenv("SESSION_DURATION"); d != "" {
+		if dur, err := time.ParseDuration(d); err == nil && dur > 0 {
+			t := time.Now().Add(dur)
+			return &t
+		}
+	}
+	if os.Getenv("GITHUB_RUN_ID") != "" {
+		// 335m leaves a ~13m buffer before the 348m self-cancel / 360m hard kill.
+		t := time.Now().Add(335 * time.Minute)
+		return &t
+	}
+	return nil
 }

@@ -815,9 +815,10 @@ type Node struct {
 	Status          string `json:"status"`
 	CurrentLoad     int    `json:"current_load"`
 	LastHeartbeat   string `json:"last_heartbeat,omitempty"`
-	WebURL          string `json:"web_url"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
+	WebURL          string     `json:"web_url"`
+	SessionDeadline *time.Time `json:"session_deadline,omitempty"`
+	CreatedAt       string     `json:"created_at,omitempty"`
+	UpdatedAt       string     `json:"updated_at,omitempty"`
 }
 
 // UpsertNode registers or updates a node.
@@ -1273,6 +1274,117 @@ func (c *Client) ReclaimChannels(deadNodeID string) (int, error) {
 		return 0, err
 	}
 	return len(assignments), nil
+}
+
+// GetNodesWithImminentDeadline returns online nodes whose session_deadline is
+// within `window` from now. Used to migrate a node's channels away BEFORE the
+// node is killed (e.g. GitHub's 6-hour runner limit).
+func (c *Client) GetNodesWithImminentDeadline(window time.Duration) ([]Node, error) {
+	cutoff := time.Now().Add(window).UTC().Format(time.RFC3339)
+	var nodes []Node
+	err := c.get(fmt.Sprintf("/nodes?session_deadline=not.is.null&session_deadline=lt.%s&status=eq.online&order=node_id.asc",
+		url.QueryEscape(cutoff)), &nodes)
+	if err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
+// ReleaseExcessOfflineChannels releases up to `limit` OFFLINE channels from this
+// node back to unassigned. Unlike ReleaseExcessChannels it NEVER releases a
+// live or recording channel, so a node's in-progress recordings are left alone
+// during fair-share rebalancing. Channels are selected offline-first, then
+// alphabetically, to be deterministic.
+func (c *Client) ReleaseExcessOfflineChannels(nodeID string, limit int) ([]ChannelAssignment, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	// Offline channels only, and exclude any still marked 'recording' (a node may
+	// briefly lag the liveness flag, so this protects a channel that is actually
+	// being recorded from being interrupted).
+	var offline []ChannelAssignment
+	err := c.get(
+		fmt.Sprintf("/channel_assignments?assigned_node=eq.%s&status=neq.unassigned&status=neq.recording&is_live=eq.false&select=username,site&order=username.asc&limit=%d",
+			url.QueryEscape(nodeID), limit), &offline)
+	if err != nil {
+		return nil, err
+	}
+	if len(offline) == 0 {
+		return nil, nil
+	}
+
+	usernames := make([]string, len(offline))
+	for i, ca := range offline {
+		usernames[i] = ca.Username
+	}
+
+	resp, err := c.requestWithRetry("PATCH",
+		fmt.Sprintf("/channel_assignments?assigned_node=eq.%s&username=in.(%s)",
+			url.QueryEscape(nodeID), joinEscaped(usernames)),
+		map[string]interface{}{
+			"assigned_node": nil,
+			"status":        "unassigned",
+		})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var released []ChannelAssignment
+	if err := json.NewDecoder(resp.Body).Decode(&released); err != nil {
+		return nil, fmt.Errorf("decode released: %w", err)
+	}
+	return released, nil
+}
+
+// MarkChannelRecording marks a channel as actively recording on its node and
+// bumps its recording heartbeat. Called by the liveness loop for this node's
+// live channels so "live+recording" is authoritative in the DB.
+func (c *Client) MarkChannelRecording(username, site string) error {
+	return c.patch(
+		fmt.Sprintf("/channel_assignments?username=eq.%s&site=eq.%s",
+			url.QueryEscape(username), url.QueryEscape(site)),
+		map[string]interface{}{
+			"status":           "recording",
+			"last_recorded_at": "now()",
+			"last_heartbeat":   "now()",
+		})
+}
+
+// SetChannelStatus updates the status of a single channel assignment.
+func (c *Client) SetChannelStatus(username, site, status string) error {
+	return c.patch(
+		fmt.Sprintf("/channel_assignments?username=eq.%s&site=eq.%s",
+			url.QueryEscape(username), url.QueryEscape(site)),
+		map[string]interface{}{"status": status})
+}
+
+// ReassignChannel atomically moves a channel from one node to another via the
+// reassign_channel RPC (SELECT ... FOR UPDATE SKIP LOCKED). If the channel is no
+// longer owned by pFromNode (e.g. already reaped/migrated), this is a no-op.
+func (c *Client) ReassignChannel(username, site, fromNode, toNode string) error {
+	body := map[string]interface{}{
+		"p_username":  username,
+		"p_site":      site,
+		"p_from_node": fromNode,
+		"p_to_node":   toNode,
+	}
+	resp, err := c.requestWithRetry("POST", "/rpc/reassign_channel", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // BulkInsertAssignments creates channel_assignments rows for channels that don't have one yet.

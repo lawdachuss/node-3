@@ -72,6 +72,11 @@ func (c *Coordinator) runClaimCycle() {
 	if draining {
 		return
 	}
+	// Don't claim while fenced (DB unreachable / partitioned) — claiming would
+	// fight the healthy nodes that took over our released channels.
+	if c.isFenced() {
+		return
+	}
 	// Self-heal: repair rows stuck with assigned_node set but status=unassigned.
 	// These rows are invisible to both claim and release, causing a deadlock.
 	if repaired, err := c.Client.RepairOrphanedAssignments(); err != nil {
@@ -152,10 +157,12 @@ func (c *Coordinator) runClaimCycle() {
 		return
 	}
 
-	// Release excess channels if we have more than our fair share
+	// Release excess channels if we have more than our fair share.
+	// Only OFFLINE channels are released, so a live+recording channel is never
+	// interrupted just because its node is over fair-share.
 	if myLoad > fairShare && totalNodes > 1 {
 		excess := myLoad - fairShare
-		released, err := c.Client.ReleaseExcessChannels(c.NodeID, excess)
+		released, err := c.Client.ReleaseExcessOfflineChannels(c.NodeID, excess)
 		if err != nil {
 			log.Printf("[coordinator] claim cycle: release excess error: %v", err)
 			return

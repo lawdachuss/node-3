@@ -478,7 +478,11 @@ jobs:
             if ($sleepSecs -le 0) { break }
             if ($dvr.HasExited) {
               Write-Host "[WARN] DVR exited (code: $($dvr.ExitCode)) - restarting..."
-              $env:SESSION_DURATION = [Math]::Max(1, [math]::Floor((5*3600+20*60 - $elapsed)/60)) + "m0s"
+              # NOTE: in PowerShell, `number + "string"` is NUMERIC addition (it
+              # coerces the string to a number), not concatenation — so
+              # `... + "m0s"` throws "Cannot convert value 'm0s' to System.Int32".
+              # Use string interpolation to force concatenation.
+              $env:SESSION_DURATION = "$([Math]::Max(1, [math]::Floor((5*3600+20*60 - $elapsed)/60)))m0s"
               $dvr = Start-Process -FilePath $dvrExe -ArgumentList "--no-tunnel --output-dir `"$videosDir`"" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardOutput $dvrLog -RedirectStandardError "$repoDir\dvr-err.log" -PassThru
             }
             if ($tun -and $tun.HasExited) {

@@ -84,6 +84,12 @@ type Pipeline struct {
 	LastError    string `json:"last_error"`
 	Retries      int    `json:"retries"`
 
+	// MetadataFailed indicates the video/hosts uploads succeeded but saving the
+	// recording's metadata row to Supabase failed (e.g. during a network
+	// partition). When set, the local file is preserved and the pipeline keeps
+	// retrying stageSaveMetadata on the next resume instead of being abandoned.
+	MetadataFailed bool `json:"metadata_failed"`
+
 	// Channel metadata snapshot captured at enqueue time so stageSaveMetadata
 	// uses the state from when the file was recorded, not whatever a newer
 	// recording session may have written to the Channel struct.
@@ -303,13 +309,13 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		hp.bytes = current
 		hp.lastTime = now
 		hostProgress[host] = hp
-		hostMu.Unlock()
 
 		hostCount := len(success)
 		uploadedHosts := make(map[string]bool)
 		for _, r := range success {
 			uploadedHosts[r.Host] = true
 		}
+		hostMu.Unlock()
 
 		// Build per-host entries
 		hostMu.Lock()
@@ -387,7 +393,9 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		}
 		results = append(results, attemptResults...)
 
+		hostMu.Lock()
 		success = uploader.GetSuccessfulUploads(results)
+		hostMu.Unlock()
 		ch.SetUploadProgress(filename, fmt.Sprintf("uploaded to %d/%d hosts", len(success), len(allHosts)),
 			float64(len(success))/float64(len(allHosts))*100, len(success), len(allHosts),
 			0, 0, "", nil)
@@ -429,7 +437,11 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 			if len(hostsToTry) > 0 {
 				ch.Warn("upload: %d hosts still pending — retrying in %ds (attempt %d/%d)",
 					len(hostsToTry), int(channelUploadRetryDelay.Seconds()), attempt+1, maxChannelUploadAttempts)
-				time.Sleep(channelUploadRetryDelay)
+				select {
+				case <-time.After(channelUploadRetryDelay):
+				case <-stageCtx.Done():
+					goto uploadStageDone
+				}
 			}
 		}
 	}
@@ -674,12 +686,12 @@ func (pq *PipelineQueue) startOnce() {
 func (pq *PipelineQueue) Stop() {
 	pq.mu.Lock()
 	pq.stopped = true
-	pq.mu.Unlock()
-	pq.cond.Broadcast()
 	if pq.reaperStop != nil {
 		close(pq.reaperStop)
 		pq.reaperStop = nil
 	}
+	pq.mu.Unlock()
+	pq.cond.Broadcast()
 	pq.wg.Wait()
 }
 
@@ -740,6 +752,18 @@ func (pq *PipelineQueue) reapStalePipelines() {
 			continue
 		}
 		if s.CurrentStage == StageDone.String() {
+			continue
+		}
+		// Only reap this node's own stale states. Reaping a healthy node's
+		// in-progress state (e.g. a >2h upload) would discard real progress.
+		if s.NodeID != "" && s.NodeID != server.NodeID() {
+			continue
+		}
+		// Never reap a state that is merely waiting on the DB (uploads done,
+		// stageSaveMetadata failing — e.g. during a partition). The pipeline
+		// retries the metadata save on the next resume; deleting it would lose
+		// an already-uploaded recording.
+		if s.CurrentStage == StageSaveMetadata.String() {
 			continue
 		}
 		if s.CreatedAt == "" {
@@ -844,12 +868,26 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 					ch.Warn("pipeline: could not persist state for %s: %v", filename, saveErr)
 				}
 			} else {
-				// Retries exhausted — abandon the pipeline and clean up.
-				ch.Error("pipeline: %s failed %d times, abandoning", filename, p.Retries+1)
-				if delErr := server.DeletePipelineState(p.FileHash); delErr != nil {
-					ch.Warn("pipeline: could not delete abandoned state for %s: %v", filename, delErr)
+				// Retries exhausted.
+				if p.MetadataFailed && len(p.Links) > 0 {
+					// Uploads succeeded but the Supabase metadata row could not
+					// be persisted (e.g. network partition / fenced node). Keep
+					// the local file and the pipeline state so stageSaveMetadata
+					// is retried on the next resume once the DB is reachable
+					// again, rather than discarding a successfully-uploaded
+					// recording.
+					ch.Error("pipeline: %s metadata save failed %d times; keeping file for later retry", filename, p.Retries+1)
+					if saveErr := server.SavePipelineState(p.toDBState()); saveErr != nil {
+						ch.Warn("pipeline: could not persist metadata-pending state for %s: %v", filename, saveErr)
+					}
+				} else {
+					// Retries exhausted — abandon the pipeline and clean up.
+					ch.Error("pipeline: %s failed %d times, abandoning", filename, p.Retries+1)
+					if delErr := server.DeletePipelineState(p.FileHash); delErr != nil {
+						ch.Warn("pipeline: could not delete abandoned state for %s: %v", filename, delErr)
+					}
+					deleteLocalFile(ch, filename, p.FilePath)
 				}
-				deleteLocalFile(ch, filename, p.FilePath)
 			}
 			if m := server.Manager; m != nil {
 				m.PublishLog(ch.Config.Username, fmt.Sprintf("[pipeline] %s finished (stage=%s, failed=%v, retries=%d)", filename, p.CurrentStage, p.Failed, p.Retries))
@@ -924,14 +962,12 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 			ch.Error("pipeline: upload stage failed for %s: %v", filename, uploadErr)
 			p.Failed = true
 			p.LastError = uploadErr.Error()
-			deleteLocalFile(ch, filename, p.FilePath)
 			return
 		}
 		if len(p.Links) == 0 {
 			ch.Error("pipeline: upload stage produced no links for %s", filename)
 			p.Failed = true
 			p.LastError = "upload produced no links"
-			deleteLocalFile(ch, filename, p.FilePath)
 			return
 		}
 
@@ -953,6 +989,7 @@ func (pq *PipelineQueue) processPipeline(p *Pipeline) {
 		if err := p.stageSaveMetadata(ch); err != nil {
 			ch.Error("pipeline: metadata stage failed for %s: %v", filename, err)
 			p.Failed = true
+			p.MetadataFailed = true
 			p.LastError = err.Error()
 			return
 		}
@@ -1125,6 +1162,12 @@ func (pq *PipelineQueue) ResumePending() {
 			username = extractUsernameFromFilename(s.Filename)
 		}
 		if username != "" && username != pq.ch.Config.Username {
+			continue
+		}
+		// Only resume pipeline states owned by this node. States from other
+		// nodes reference files on their disks and would fail or double-upload.
+		// Legacy states with an empty NodeID are still resumed for compatibility.
+		if s.NodeID != "" && s.NodeID != server.NodeID() {
 			continue
 		}
 		// Check file still exists

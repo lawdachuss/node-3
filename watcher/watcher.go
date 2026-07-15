@@ -231,6 +231,12 @@ func (fw *FileWatcher) processFile(filePath string) {
 		return
 	}
 
+	// Claim the file via the in-flight marker so the concurrently-running
+	// orphan scanner does not also upload it. The orphan scanner checks
+	// IsUploadInFlight and skips files already claimed here.
+	channel.MarkUploadInFlight(filePath)
+	defer channel.MarkUploadDone(filePath)
+
 	// Generate thumbnails and upload
 	thumbURL, spriteURL, previewURL := channel.GenerateThumbnailForFile(filePath)
 	if !channel.UploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL) {

@@ -46,6 +46,51 @@ type httpcloakTransport struct {
 	refreshActive    bool
 	refreshStartedAt time.Time
 	refreshProxy     string
+
+	// deadUntil records proxies that recently failed with a connection error
+	// (SOCKS5 unreachable / timeout / refused). They are skipped during
+	// rotation for proxyDeadCooldown so a batch of dead free proxies doesn't
+	// burn the per-request timeout on every request and spam cookie-refresh
+	// cancellations. Cleared whenever the proxy list is refreshed.
+	deadUntil map[string]time.Time
+}
+
+// proxyDeadCooldown is how long a proxy that failed with a connection error is
+// avoided before being retried. Free SOCKS5 proxies die often, but a short
+// cooldown lets a flaky one recover without us hammering it on every request.
+const proxyDeadCooldown = 5 * time.Minute
+
+// proxyIsDead reports whether proxyURL is currently inside its dead-cooldown
+// window. Caller must have already determined the proxy is the one to test;
+// this is a pure read of the supplied map (no locking) so it can be called
+// while t.mu is already held.
+func proxyIsDead(deadUntil map[string]time.Time, proxyURL string) bool {
+	if proxyURL == "" || deadUntil == nil {
+		return false
+	}
+	until, ok := deadUntil[proxyURL]
+	if !ok {
+		return false
+	}
+	if time.Now().Before(until) {
+		return true
+	}
+	delete(deadUntil, proxyURL)
+	return false
+}
+
+// markDead records proxyURL as temporarily unusable due to a connection
+// failure so rotation skips it for proxyDeadCooldown.
+func (t *httpcloakTransport) markDead(proxyURL string) {
+	if proxyURL == "" {
+		return
+	}
+	t.mu.Lock()
+	if t.deadUntil == nil {
+		t.deadUntil = make(map[string]time.Time)
+	}
+	t.deadUntil[proxyURL] = time.Now().Add(proxyDeadCooldown)
+	t.mu.Unlock()
 }
 
 // cookieRefreshCooldown is how long RoundTrip will wait for an in-flight
@@ -80,6 +125,7 @@ func getSharedTransport() http.RoundTripper {
 		sharedTransportSingleton = &httpcloakTransport{
 			client:    client,
 			proxyURLs: proxyURLs,
+			deadUntil: make(map[string]time.Time),
 		}
 	})
 	return sharedTransportSingleton
@@ -156,7 +202,24 @@ func (t *httpcloakTransport) rotateProxy() bool {
 		return false
 	}
 
-	t.proxyIdx++
+	// Advance to the next non-dead proxy so we don't immediately retry one
+	// that just failed with a connection error (which would re-trigger a
+	// Scrapling cookie refresh only to cancel it on the next failure).
+	start := t.proxyIdx
+	chosen := -1
+	for i := 1; i <= len(t.proxyURLs); i++ {
+		idx := (start + i) % len(t.proxyURLs)
+		if !proxyIsDead(t.deadUntil, proxyURLAt(t.proxyURLs, idx)) {
+			chosen = idx
+			break
+		}
+	}
+	if chosen == -1 {
+		// Every proxy is currently marked dead — fall back to the next one
+		// anyway so we don't get permanently stuck (the cooldown will expire).
+		chosen = (start + 1) % len(t.proxyURLs)
+	}
+	t.proxyIdx = chosen
 	proxyURL := proxyURLAt(t.proxyURLs, t.proxyIdx)
 
 	// Close old client if it exposes a Close method
@@ -255,6 +318,7 @@ func (t *httpcloakTransport) refreshProxies() bool {
 	}
 
 	t.proxyURLs = newProxies
+	t.deadUntil = make(map[string]time.Time)
 	t.proxyIdx = 0
 	firstProxy := proxyURLAt(newProxies, 0)
 	t.client = newCloakClient(firstProxy)
@@ -601,6 +665,9 @@ func (t *httpcloakTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 			// Proxy connection failure — rotate to next proxy in the list
 			if isProxyError(err) {
+				// Remember this proxy as dead so we don't keep retrying it on
+				// every request (and spinning up/cancelling Scrapling refreshes).
+				t.markDead(currentProxy)
 				// If a cookie refresh is already in flight for this proxy and
 				// hasn't had time to finish, wait for it instead of rotating.
 				// Rotating now would cancel the Scrapling refresh, and a flaky
