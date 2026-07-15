@@ -1932,7 +1932,7 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 		}
 	}
 
-	dur, err := VideoDurationSeconds(videoPath)
+		dur, err := VideoDurationSeconds(videoPath)
 	if err != nil {
 		ch.Warn("min-duration: could not probe %s: %v — deferring to pending", filepath.Base(videoPath), err)
 		// On probe failure, keep the video pending rather than uploading a corrupt/short file
@@ -1944,8 +1944,11 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 				return true
 			}
 		}
+		// Cannot defer and must not upload a sub-threshold/corrupt file, so drop it.
 		mu.Unlock()
-		return false
+		ch.Error("min-duration: probe failed and cannot defer %s — dropping (no upload)", filepath.Base(videoPath))
+		os.Remove(videoPath)
+		return true
 	}
 
 	if dur >= float64(minDur) {
@@ -2017,15 +2020,19 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 	pendingDir := pendingSegmentsDir(ch.Config.Username)
 	if err := os.MkdirAll(pendingDir, 0777); err != nil {
 		mu.Unlock()
-		ch.Error("min-duration: cannot create pending dir %s: %v — uploading short video", pendingDir, err)
-		return false
+		// Cannot defer, and we must NOT upload a sub-threshold video, so drop it.
+		ch.Error("min-duration: cannot create pending dir %s: %v — dropping short video (no upload)", pendingDir, err)
+		os.Remove(videoPath)
+		return true
 	}
 
 	destPath := filepath.Join(pendingDir, filepath.Base(videoPath))
 	if err := os.Rename(videoPath, destPath); err != nil {
 		mu.Unlock()
-		ch.Error("min-duration: cannot move %s to pending: %v — uploading short video", filepath.Base(videoPath), err)
-		return false
+		// Cannot defer, so drop rather than let it fall through to upload.
+		ch.Error("min-duration: cannot move %s to pending: %v — dropping short video (no upload)", filepath.Base(videoPath), err)
+		os.Remove(videoPath)
+		return true
 	}
 	ch.Info("min-duration: %s is %.1fs (< %ds) — deferred to pending", filepath.Base(videoPath), dur, minDur)
 
@@ -2078,14 +2085,15 @@ func (ch *Channel) handleMinDurationAndMerge(videoPath string, skipDefer bool) b
 			if mErr := os.MkdirAll(pendingDir, 0777); mErr == nil {
 				if rErr := os.Rename(mergedPath, mergedDest); rErr != nil {
 					mu.Unlock()
-					ch.Error("min-duration: cannot keep merged result pending: %v — uploading anyway", rErr)
-					ch.MoveToOutputDir(mergedPath)
+					// Cannot keep pending and must not upload a sub-threshold merge, so drop it.
+					ch.Error("min-duration: cannot keep merged result pending: %v — dropping (no upload)", rErr)
+					os.Remove(mergedPath)
 					return true
 				}
 			} else {
 				mu.Unlock()
-				ch.Error("min-duration: cannot recreate pending dir: %v — uploading anyway", mErr)
-				ch.MoveToOutputDir(mergedPath)
+				ch.Error("min-duration: cannot recreate pending dir: %v — dropping (no upload)", mErr)
+				os.Remove(mergedPath)
 				return true
 			}
 			mu.Unlock()
