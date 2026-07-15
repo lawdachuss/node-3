@@ -435,9 +435,9 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 					"-t", fmt.Sprintf("%.2f", previewDuration),
 					"-vf", fmt.Sprintf("scale=%d:-2:flags=lanczos", previewWidth),
 					"-c:v", "libx264",
-					"-preset", "ultrafast",
-					"-crf", "28",
-					"-threads", "1",
+					"-preset", "fast",
+					"-crf", "23",
+					"-movflags", "+faststart",
 					"-an",
 					previewMP4,
 				)
@@ -454,14 +454,25 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 					previewMP4,
 				)
 			} else {
-				// Fast path: seek to previewSegments clips via input seeking
-				// (-ss/-t before -i) instead of decoding the whole file with
-				// trim.  For a 1-hour recording this cuts decode work from
-				// ~full video to previewSegments×segDuration seconds.
+				// Single-input montage: open the recording ONCE and trim
+				// previewSegments evenly-spaced clips in one filter_complex.
+				// This is robust regardless of whether the source has
+				// +faststart (moov at the end of the file): ffmpeg opens the
+				// file a single time and decodes it once.  The prior 12-separate
+				// -i approach opened the file 12× and was extremely slow on
+				// non-faststart recordings (each open scanned the whole file).
 				segDuration := previewDuration / float64(previewSegments)
 
-				args := []string{"-y"}
+				var filterParts []string
+				var concatInputs []string
 				for i := 0; i < previewSegments; i++ {
+					// Anchor clips across the full timeline: clip 0 sits at the
+					// very start (0%) and the last clip at the very end (100%),
+					// with the rest evenly spaced in between.  This guarantees
+					// the preview spans the ENTIRE recording (no missing
+					// beginning/end) and the clips play back in true timeline
+					// order.  The earlier midpoint-of-slot sampling left the
+					// first/last ~half-slot of the recording uncovered.
 					var center float64
 					if previewSegments == 1 {
 						center = dur / 2
@@ -469,6 +480,9 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 						center = (float64(i) / float64(previewSegments-1)) * dur
 					}
 					start := center - segDuration/2
+					// Clamp so the clip stays fully inside [0, dur].  Both
+					// branches are needed: the start clip can go negative
+					// (center=0) and the end clip can overrun (center=dur).
 					if start < 0 {
 						start = 0
 					}
@@ -478,44 +492,40 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 					if start < 0 {
 						start = 0
 					}
-					args = append(args, "-ss", fmt.Sprintf("%.3f", ptsOffset+start), "-t", fmt.Sprintf("%.3f", segDuration), "-i", videoPath)
+					label := fmt.Sprintf("v%d", i)
+					filterParts = append(filterParts, fmt.Sprintf(
+						"[0:v]trim=start=%.3f:duration=%.3f,setpts=PTS-STARTPTS[%s]",
+						ptsOffset+start, segDuration, label,
+					))
+					concatInputs = append(concatInputs, fmt.Sprintf("[%s]", label))
 				}
-
-				// Concatenate the raw clips first (no scaling per segment),
-				// then scale the whole 18s montage once — avoids 11 redundant
-				// scale passes.  Encode with ultrafast + single thread + no
-				// faststart: at 320×180 the frame is tiny, so libx264 thread
-				// spin-up dominates; a single thread is actually faster here,
-				// and faststart only helps playback start, not generation time.
-				var fp []string
-				for i := 0; i < previewSegments; i++ {
-					fp = append(fp, fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS[v%d]", i, i))
-				}
-				var concatIns []string
-				for i := 0; i < previewSegments; i++ {
-					concatIns = append(concatIns, fmt.Sprintf("[v%d]", i))
-				}
-				fp = append(fp, fmt.Sprintf("%s%s", strings.Join(concatIns, ""),
+				// Concatenate the 12 clips, then scale+pad the whole 18s
+				// montage once (fixed 16:9 frame so concat never fails on
+				// aspect drift).  +faststart on output so web playback starts
+				// immediately.
+				filterComplex := strings.Join(filterParts, ";") + ";" +
+					strings.Join(concatInputs, "") +
 					fmt.Sprintf("concat=n=%d:v=1:a=0,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,pad=%d:%d:(ow-iw)/2:(oh-ih)/2[out]",
-						previewSegments, previewWidth, previewHeight, previewWidth, previewHeight)))
+						previewSegments, previewWidth, previewHeight, previewWidth, previewHeight)
 
-				args = append(args,
-					"-filter_complex", strings.Join(fp, ";"),
+				stderr, err = runFFmpeg(ctx,
+					"-y",
+					"-i", videoPath,
+					"-filter_complex", filterComplex,
 					"-map", "[out]",
 					"-c:v", "libx264",
-					"-preset", "ultrafast",
-					"-crf", "28",
-					"-threads", "1",
+					"-preset", "fast",
+					"-crf", "23",
+					"-movflags", "+faststart",
 					"-an",
 					previewMP4,
 				)
-				stderr, err = runFFmpeg(ctx, args...)
 
 				if err != nil || !fileExists(previewMP4) {
 					if err != nil {
-						errFn("preview: seek-concat failed for %s: %v (ffmpeg: %s), trying simple fallback", baseName, err, stderr)
+						errFn("preview: complex filter failed for %s: %v (ffmpeg: %s), trying simple fallback", baseName, err, stderr)
 					} else {
-						errFn("preview: seek-concat produced no output for %s, trying simple fallback", baseName)
+						errFn("preview: complex filter produced no output for %s, trying simple fallback", baseName)
 					}
 					fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 					defer fallbackCancel()
@@ -526,9 +536,9 @@ func generateThumbnailForFile(videoPath string, info, errFn func(string, ...inte
 						"-t", fmt.Sprintf("%.2f", previewDuration),
 						"-vf", fmt.Sprintf("scale=%d:-2:flags=lanczos", previewWidth),
 						"-c:v", "libx264",
-						"-preset", "ultrafast",
-						"-crf", "28",
-						"-threads", "1",
+						"-preset", "fast",
+						"-crf", "23",
+						"-movflags", "+faststart",
 						"-an",
 						previewMP4,
 					)
