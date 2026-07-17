@@ -530,6 +530,9 @@ func (m *Manager) GetLocalChannels() []string {
 func (m *Manager) ScanThumbnails() {
 	videoExts := map[string]bool{".mp4": true, ".mkv": true}
 	dirs := []string{"videos"}
+	if server.Config.OutputDir != "" {
+		dirs = append(dirs, server.Config.OutputDir)
+	}
 
 	for _, dir := range dirs {
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {

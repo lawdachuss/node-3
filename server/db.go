@@ -841,6 +841,8 @@ func SaveTunnelToDB(tunnelURL string, runID int) error {
 	if nodeID := NodeID(); nodeID != "" {
 		if err := client.UpdateNodeWebURL(nodeID, tunnelURL); err != nil {
 			fmt.Printf("[WARN] failed to update node web_url: %v\n", err)
+		} else {
+			fmt.Printf("[OK] updated node %s web_url to %s\n", nodeID, tunnelURL)
 		}
 	}
 	return nil

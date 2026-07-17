@@ -506,11 +506,20 @@ jobs:
 
           if ($tunnelJob) { $null = $tunnelJob | Wait-Job -Timeout 30 -ErrorAction SilentlyContinue; $tunnelUrl = Receive-Job $tunnelJob -ErrorAction SilentlyContinue; Remove-Job $tunnelJob -Force -ErrorAction SilentlyContinue }
           if (-not $tunnelUrl -and (Test-Path $turlTemp)) { $tunnelUrl = (Get-Content $turlTemp -Raw).Trim() }
+          function Update-NodeWebUrl {
+            param($nodeId, $url)
+            $sb = Get-Content "$repoDir\.env" -Raw -ErrorAction SilentlyContinue
+            if (-not $sb) { Write-Warning "[WARN] .env not found - cannot update web_url"; return }
+            if ($sb -match 'SUPABASE_URL=(.+)') { $sbUrl = $matches[1] } else { Write-Warning "[WARN] SUPABASE_URL not in .env"; return }
+            if ($sb -match 'SUPABASE_API_KEY=(.+)') { $sbKey = $matches[1] } else { Write-Warning "[WARN] SUPABASE_API_KEY not in .env"; return }
+            $body = @{ web_url = $url } | ConvertTo-Json -Compress
+            $apiUrl = "$sbUrl/rest/v1/nodes?node_id=eq.$([uri]::EscapeDataString($nodeId))"
+            try { Invoke-RestMethod -Uri $apiUrl -Method Patch -Body $body -ContentType "application/json" -Headers @{ "apikey" = $sbKey; "Authorization" = "Bearer $sbKey" } -TimeoutSec 10 -ErrorAction Stop | Out-Null; Write-Host "[OK] Updated node $nodeId web_url in Supabase" } catch { Write-Warning "[WARN] Failed to update web_url: $_" }
+          }
           if ($tunnelUrl) {
             $tunnelUrl | Set-Content $tunnelUrlFile -Force
-            Write-Host "::notice title=Dashboard::$tunnelUrl"
-            Write-Host "Dashboard: $tunnelUrl"
-            for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } }
+            Write-Host "[OK] Tunnel URL: $tunnelUrl"
+            Update-NodeWebUrl "$env:NODE_ID" $tunnelUrl
           }
 
           Remove-Item $uploadFlag -Force -ErrorAction SilentlyContinue
@@ -535,10 +544,11 @@ jobs:
               $stderr = "$repoDir\tunnel-stderr.log"; if (Test-Path $stderr) { Remove-Item $stderr -Force }
               $tun = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $stderr -PassThru
               Start-Sleep -Seconds 10
-              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; Write-Host "::notice title=Dashboard::$tunnelUrl"; Write-Host "Dashboard restarted: $tunnelUrl"; for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } } } }
+              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; Write-Host "[OK] New tunnel URL: $tunnelUrl"; Update-NodeWebUrl "$env:NODE_ID" $tunnelUrl } }
             }
+            $pub = if ($tunnelUrl) { " | PUBLIC: $tunnelUrl" } else { "" }
             $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            Write-Host "[$now] $tsIp (Elapsed: $([Math]::Round($elapsed/60,1))m)"
+            Write-Host "[$now] $tsIp$pub (Elapsed: $([Math]::Round($elapsed/60,1))m)"
             Start-Sleep -Seconds $sleepSecs
           }
           $waitStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

@@ -1038,6 +1038,15 @@ func (pq *PipelineQueue) EnqueueFile(filePath string) {
 		return
 	}
 
+	// Reject files where the model username cannot be extracted from the
+	// filename — these are corrupted recordings (e.g. ".video.muxed.mp4"
+	// when the DVR crashed before setting the channel username).
+	if user := extractUsernameFromFilename(base); user == "" {
+		pq.ch.Warn("pipeline: %s has no extractable username — skipping corrupted file", base)
+		_ = os.Remove(filePath)
+		return
+	}
+
 	MarkUploadInFlight(filePath)
 
 	fileHash, hashErr := internal.FastFileHash(filePath)
