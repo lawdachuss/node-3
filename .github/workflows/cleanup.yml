@@ -1,0 +1,29 @@
+name: Cleanup DVR
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  cleanup:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kill DVR and cleanup
+        shell: powershell
+        run: |
+          Write-Host "[CLEANUP] Stopping chaturbate-dvr..."
+          Get-Process chaturbate-dvr -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Write-Host "[CLEANUP] Stopping cloudflared..."
+          Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Write-Host "[CLEANUP] Unregistering scheduled tasks..."
+          Unregister-ScheduledTask -TaskName "ChaturbateDVR" -Confirm:$false -ErrorAction SilentlyContinue
+          Unregister-ScheduledTask -TaskName "CloudflareTunnel" -Confirm:$false -ErrorAction SilentlyContinue
+          Write-Host "[CLEANUP] Done"

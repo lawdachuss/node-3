@@ -29,6 +29,14 @@ jobs:
       - name: Init
         shell: powershell
         run: |
+          # Cleanup any stale DVR from previous runs
+          Get-Process chaturbate-dvr -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Unregister-ScheduledTask -TaskName "ChaturbateDVR" -Confirm:$false -ErrorAction SilentlyContinue
+          Unregister-ScheduledTask -TaskName "CloudflareTunnel" -Confirm:$false -ErrorAction SilentlyContinue
+          # Don't delete videos/ - they contain completed recordings
+          Remove-Item "D:\repos\node-3\tunnel-url.txt" -Force -ErrorAction SilentlyContinue
+
           $epoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
           echo "START_TIME=$epoch" >> $env:GITHUB_ENV
           $r = gh run list --workflow secure-rdp.yml --repo "$env:GITHUB_REPOSITORY" --limit 10 --json databaseId,status,startedAt 2>$null | ConvertFrom-Json
@@ -476,30 +484,36 @@ jobs:
           $env:UPNSHARE_KEY = "${{ secrets.UPNSHARE_KEY }}"; $env:DOODSTREAM_API_KEY = "${{ secrets.DOODSTREAM_API_KEY }}"
           $env:VOESX_API_KEY = "${{ secrets.VOESX_API_KEY }}"
           $dvr = Start-Process -FilePath $dvrExe -ArgumentList "--no-tunnel --output-dir `"$videosDir`"" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardOutput $dvrLog -RedirectStandardError "$repoDir\dvr-err.log" -PassThru
-          Write-Host "[OK] DVR PID: $($dvr.Id)"
+          $dvrPid = if ($dvr -and $dvr.Id) { $dvr.Id } else { "?" }
 
-          for ($i = 0; $i -lt 90; $i++) {
-            if ($dvr.HasExited) { Write-Host "[ERROR] DVR exited (code: $($dvr.ExitCode))"; Get-Content $dvrLog -Tail 20; break }
-            if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue) { Write-Host "[OK] DVR on port 8080"; break }
-            Start-Sleep -Seconds 2
-          }
-          for ($i = 0; $i -lt 10; $i++) { try { Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop | Out-Null; break } catch { if ($_.Exception.Response.StatusCode -eq 404) { break }; Start-Sleep -Seconds 2 } }
-
-          $tunnelUrl = $null; $tun = $null
+          # Start cloudflared tunnel in parallel (retries until port 8080 is up)
+          $tunnelUrl = $null; $tun = $null; $tunnelJob = $null
+          $turlTemp = "D:\temp\_turl"
           if (Test-Path $cloudflaredPath) {
             $stderr = "$repoDir\tunnel-stderr.log"
             $tun = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $stderr -PassThru
-            for ($i = 0; $i -lt 30; $i++) { Start-Sleep -Seconds 1; if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; Write-Host "[OK] Tunnel: $tunnelUrl"; Write-Host "::notice title=Web UI::$tunnelUrl"; break } } }
-            if ($tunnelUrl) {
-              $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'
-              Write-Host "::notice title=Web UI::$tunnelUrl"
-              "## DVR Web UI Tunnel`n`n<a href=`"$safeUrl`">$safeUrl</a>`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline
-              for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } }
-            }
+            if ($tun) { $tunnelJob = Start-Job -ScriptBlock { param($f,$o) for ($i = 0; $i -lt 30; $i++) { Start-Sleep -Seconds 1; if (Test-Path $f) { $c = Get-Content $f -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $m.Value | Set-Content $o -Force; return $m.Value } } }; return $null } -ArgumentList $stderr,$turlTemp }
           }
 
-          $setupLog = "$repoDir\workflow-setup.log"
-          cmd /c "gh run view $env:GITHUB_RUN_ID --log --repo $env:GITHUB_REPOSITORY 2>nul" 2>$null | ForEach-Object { $_ -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+', '' } | Set-Content $setupLog -Force
+          if ($dvrPid -ne "?") { Write-Host "[OK] DVR PID: $dvrPid" }
+          for ($i = 0; $i -lt 90; $i++) {
+            if ($dvr.HasExited) { Write-Host "[ERROR] DVR exited (code: $($dvr.ExitCode))"; Get-Content $dvrLog -Tail 20; break }
+            if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue) { break }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host "[OK] DVR on port 8080"
+          for ($i = 0; $i -lt 10; $i++) { try { Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop | Out-Null; break } catch { if ($_.Exception.Response.StatusCode -eq 404) { break }; Start-Sleep -Seconds 2 } }
+
+          if ($tunnelJob) { $null = $tunnelJob | Wait-Job -Timeout 30 -ErrorAction SilentlyContinue; $tunnelUrl = Receive-Job $tunnelJob -ErrorAction SilentlyContinue; Remove-Job $tunnelJob -Force -ErrorAction SilentlyContinue }
+          if (-not $tunnelUrl -and (Test-Path $turlTemp)) { $tunnelUrl = (Get-Content $turlTemp -Raw).Trim() }
+          if ($tunnelUrl) {
+            $tunnelUrl | Set-Content $tunnelUrlFile -Force
+            $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($tunnelUrl))
+            Write-Host "Dashboard: base64:$b64 (decode at base64decode.org)"
+            $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'
+            "## DVR Web UI Tunnel`n`n<a href=`"$safeUrl`">Open Dashboard</a>`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline
+            for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } }
+          }
 
           Remove-Item $uploadFlag -Force -ErrorAction SilentlyContinue
           $startTime = if ($env:START_TIME) { [int64]$env:START_TIME } else { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
@@ -523,10 +537,10 @@ jobs:
               $stderr = "$repoDir\tunnel-stderr.log"; if (Test-Path $stderr) { Remove-Item $stderr -Force }
               $tun = Start-Process -FilePath $cloudflaredPath -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" -WorkingDirectory $repoDir -NoNewWindow -RedirectStandardError $stderr -PassThru
               Start-Sleep -Seconds 10
-              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'; Write-Host "::notice title=Web UI::$tunnelUrl"; "<a href=`"$safeUrl`">$safeUrl (restarted)</a>" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline; for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } } } }
+              if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $safeUrl = $tunnelUrl -replace '\.', '&#46;' -replace '-', '&#45;'; $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($tunnelUrl)); Write-Host "Dashboard restarted: base64:$b64"; "<a href=`"$safeUrl`">Open Dashboard (restarted)</a>" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -NoNewline; for ($t = 0; $t -lt 10; $t++) { try { Invoke-RestMethod -Uri "http://localhost:8080/api/tunnel" -Method Post -Body (@{url=$tunnelUrl} | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 -ErrorAction Stop | Out-Null; break } catch { Start-Sleep -Seconds 3 } } } }
             }
-            $pub = if ($tunnelUrl) { " | PUBLIC: $tunnelUrl" } else { "" }
-            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $tsIp$pub (Elapsed: $([Math]::Round($elapsed/60,1))m)"
+            $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Write-Host "[$now] $tsIp (Elapsed: $([Math]::Round($elapsed/60,1))m)"
             Start-Sleep -Seconds $sleepSecs
           }
           $waitStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
