@@ -364,7 +364,7 @@ jobs:
           # Capture proxy for child jobs (starts after proxy is resolved)
           $mAllProxy = $env:ALL_PROXY
 
-          # ========== Browser Proxy (SOCKS5 → HTTP, cached) ==========
+          # ========== Browser Proxy (SOCKS5 â†’ HTTP, cached) ==========
           $bpJob = Start-Job -Name browserproxy -ArgumentList $mAllProxy -ScriptBlock {
             param($proxyUrl)
             if ($proxyUrl -match 'socks5://([^:]+):(\d+)') {
@@ -573,6 +573,21 @@ jobs:
           $myNodeId = Get-NodeId
           Write-Host "[OK] Node ID: $myNodeId"
           $cachedShortUrl = $null; $lastTunnelUrl = $null
+
+          # Enable Tailscale Funnel for public internet access (fallback when trycloudflare is rate-limited)
+          $funnelUrl = $null
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          if (Test-Path $tsExe) {
+            try {
+              & $tsExe funnel 8080 2>&1 | Out-Null
+              $fs = & $tsExe funnel status 2>&1 | Out-String
+              if ($fs -match 'https://[a-z0-9\-]+\.[a-z0-9\-]+\.ts\.net') {
+                $funnelUrl = $matches[0].Trim()
+                Write-Host "[OK] Tailscale Funnel: $funnelUrl"
+              }
+            } catch { Write-Host "[WARN] Tailscale Funnel: $_" }
+          }
+
           if ($tunnelUrl -and $myNodeId) {
             $tunnelUrl | Set-Content $tunnelUrlFile -Force
             $cachedShortUrl = Shorten-Url $tunnelUrl
@@ -584,6 +599,9 @@ jobs:
               Write-Host "[OK] Visit dashboard via nodes page artifact or nodes page"
             }
             Update-NodeWebUrl $myNodeId "$tunnelUrl"
+          } elseif ($funnelUrl -and $myNodeId) {
+            Write-Host "[OK] Using Tailscale Funnel: $funnelUrl"
+            Update-NodeWebUrl $myNodeId "$funnelUrl"
           }
 
           Remove-Item $uploadFlag -Force -ErrorAction SilentlyContinue
@@ -597,7 +615,7 @@ jobs:
             if ($dvr.HasExited) {
               Write-Host "[WARN] DVR exited (code: $($dvr.ExitCode)) - restarting..."
               # NOTE: in PowerShell, `number + "string"` is NUMERIC addition (it
-              # coerces the string to a number), not concatenation — so
+              # coerces the string to a number), not concatenation â€” so
               # `... + "m0s"` throws "Cannot convert value 'm0s' to System.Int32".
               # Use string interpolation to force concatenation.
               $env:SESSION_DURATION = "$([Math]::Max(1, [math]::Floor((5*3600+20*60 - $elapsed)/60)))m0s"
@@ -611,7 +629,13 @@ jobs:
               if (Test-Path $stderr) { $c = Get-Content $stderr -Raw; $m = [regex]::Match($c, 'https://[a-z0-9\-]+\.trycloudflare\.com'); if ($m.Success) { $tunnelUrl = $m.Value; $tunnelUrl | Set-Content $tunnelUrlFile -Force; $cachedShortUrl = Shorten-Url $tunnelUrl; $lastTunnelUrl = $tunnelUrl; if ($cachedShortUrl) { Write-Host "[OK] Dashboard restarted: $cachedShortUrl" } else { Write-Host "[OK] Tunnel restarted - download artifact for link" }; Update-NodeWebUrl $myNodeId "$tunnelUrl" } }
             }
             if ($tunnelUrl -and $tunnelUrl -ne $lastTunnelUrl) { $cachedShortUrl = Shorten-Url $tunnelUrl; $lastTunnelUrl = $tunnelUrl }
-            $pub = if ($cachedShortUrl) { " | $cachedShortUrl" } elseif ($tunnelUrl) { " | $tunnelUrl" } else { "" }
+            # Fallback: use Tailscale Funnel when trycloudflare is unavailable
+            if (-not $tunnelUrl -and $funnelUrl -and $myNodeId -and -not $lastTunnelUrl) {
+              Write-Host "[OK] Tunnel unavailable - using Tailscale Funnel: $funnelUrl"
+              Update-NodeWebUrl $myNodeId "$funnelUrl"
+              $lastTunnelUrl = $funnelUrl
+            }
+            $pub = if ($cachedShortUrl) { " | $cachedShortUrl" } elseif ($tunnelUrl) { " | $tunnelUrl" } elseif ($funnelUrl) { " | $funnelUrl" } else { "" }
             $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Write-Host "[$now] $tsIp$pub (Elapsed: $([Math]::Round($elapsed/60,1))m)"
             Start-Sleep -Seconds $sleepSecs
