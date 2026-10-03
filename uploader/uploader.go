@@ -132,7 +132,7 @@ type MultiHostUploader struct {
 	// success, the marker was never cleared and the host stayed blocked for the
 	// life of the process.
 	fullSendMu sync.Mutex
-	fullSend   map[fullSendKey]bool
+	fullSend   map[fullSendKey]time.Time // key -> when the full-send marker expires; markers not in map are not blocked
 }
 
 // fullSendKey identifies one (host, file) pair whose complete body has already
@@ -337,7 +337,7 @@ func (m *MultiHostUploader) recordHostFailure(name string) int {
 	m.disabledMu.Lock()
 	defer m.disabledMu.Unlock()
 	return m.consecFails.recordFailure(name)
-}	// recordHostSuccess resets a host's consecutive-failure streak after a
+} // recordHostSuccess resets a host's consecutive-failure streak after a
 // successful upload.
 func (m *MultiHostUploader) recordHostSuccess(name string) {
 	m.disabledMu.Lock()
@@ -351,9 +351,15 @@ func (m *MultiHostUploader) markFullSend(file, name string) {
 	m.fullSendMu.Lock()
 	defer m.fullSendMu.Unlock()
 	if m.fullSend == nil {
-		m.fullSend = map[fullSendKey]bool{}
+		m.fullSend = map[fullSendKey]time.Time{}
 	}
-	m.fullSend[fullSendKey{host: name, file: file}] = true
+	// Keep the full-send guard alive for one retry window in case the server
+	// response is lost on the first attempt.  This avoids poisoning the pair
+	// for the entire process lifetime (the "VOE.sx upload: file body was
+	// already fully transmitted" dead-end) without risking re-streaming bytes
+	// that did actually reach the host.
+	exp := time.Now().Add(10 * time.Minute)
+	m.fullSend[fullSendKey{host: name, file: file}] = exp
 }
 
 // hasFullSend reports whether the host already received the complete body of
@@ -362,7 +368,15 @@ func (m *MultiHostUploader) markFullSend(file, name string) {
 func (m *MultiHostUploader) hasFullSend(file, name string) bool {
 	m.fullSendMu.Lock()
 	defer m.fullSendMu.Unlock()
-	return m.fullSend[fullSendKey{host: name, file: file}]
+	exp, ok := m.fullSend[fullSendKey{host: name, file: file}]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(m.fullSend, fullSendKey{host: name, file: file})
+		return false
+	}
+	return true
 }
 
 // clearFullSend forgets a host's full-send marker for FILE on success.
@@ -555,7 +569,11 @@ func isUploadAuthError(err error) bool {
 		strings.Contains(msg, "could not authenticate") ||
 		strings.Contains(msg, "account may be locked") ||
 		strings.Contains(msg, "invalid api key") ||
-		strings.Contains(msg, "api key not configured")
+		strings.Contains(msg, "api key not configured") ||
+		strings.Contains(msg, "streamtape rejected our credentials") ||
+		strings.Contains(msg, "rejected our credentials") ||
+		strings.Contains(msg, "invalid login") ||
+		strings.Contains(msg, "login failed")
 }
 
 // keysExhaustedCooldown is how long a host is skipped once EVERY configured key
@@ -607,15 +625,15 @@ func isHostDead(err error) bool {
 }
 
 // uploadBackoff returns the appropriate backoff duration based on whether
-// the error was a rate-limit hit. Rate limits get a longer 30s+10s/attempt,
+// the error was a rate-limit hit. Rate limits get a longer 60s+20s/attempt,
 // while other errors use standard exponential delay.
 func uploadBackoff(attempt int, err error) time.Duration {
 	if isUploadRateLimited(err) {
-		// Long backoff for rate limits — wait 30s + 10s per retry
-		return 30*time.Second + time.Duration(attempt)*10*time.Second
+		// Long backoff for rate limits — wait 60s + 20s per retry
+		return 60*time.Second + time.Duration(attempt)*20*time.Second
 	}
-	// Standard exponential backoff: 5s, 10s, 20s, 40s...
-	return time.Duration((1<<uint(attempt))*5) * time.Second
+	// Standard exponential backoff: 10s, 20s, 40s, 80s...
+	return time.Duration((1<<uint(attempt))*10) * time.Second
 }
 
 // nilLogger discards all log messages when no logger is provided.

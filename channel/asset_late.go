@@ -47,7 +47,7 @@ type assetCollect struct {
 // means the goroutine is truly stuck rather than merely still working.
 // TestLateAssetBoundOutlastsEveryAssetBudget guards that relationship.
 // A var so tests can shrink it.
-var lateAssetTrackBound = 60 * time.Minute
+var lateAssetTrackBound = 120 * time.Minute
 
 // collectAssets waits up to budget for each asset, abandoning — never killing —
 // the ones that overrun it, and hands each abandoned asset to trackLateAsset.
@@ -132,7 +132,7 @@ func trackLateAsset(assetName, baseName string, done <-chan string, abandonedAft
 		info("%s: ✓ %s landed late after %s (collect stopped waiting at %s — not a failure)",
 			assetName, baseName, elapsed, abandonedAfter)
 	case <-timer.C:
-		errFn("%s: %s still has no URL %s after being abandoned — treating as missing",
+		warn("%s: %s still has no URL %s after being abandoned (background upload may still complete later)",
 			assetName, baseName, lateAssetTrackBound)
 	}
 }

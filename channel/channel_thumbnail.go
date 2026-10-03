@@ -42,7 +42,7 @@ const (
 	// the stage can never again stall out (the seen "timed out after 10m0s"
 	// / "exceeded 15m0s" node-13 wheels came from a sequential 3×10-min wait
 	// PLUS a mirrored-upload wait for the slowest host).
-	thumbnailAssetTimeout = 3 * time.Minute
+	thumbnailAssetTimeout = 6 * time.Minute
 
 	// assetTimeoutCap bounds how long ONE asset goroutine may spend on its
 	// ffmpeg work on a slow host.  It is the longest internal budget an asset
@@ -50,7 +50,7 @@ const (
 	// abandoned asset from the outside (see lateAssetTrackBound in
 	// asset_late.go) must allow longer than this before concluding the asset
 	// is never coming.
-	assetTimeoutCap = 45 * time.Minute
+	assetTimeoutCap = 90 * time.Minute
 
 	// thumbnailFFmpegAcquireTimeout bounds how long thumbnail-scoped work
 	// waits for a free lightweight ffmpeg slot.  Much shorter than the global

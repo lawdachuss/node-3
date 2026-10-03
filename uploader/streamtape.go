@@ -162,10 +162,15 @@ func (u *StreamtapeUploader) getUploadURL() (string, error) {
 		if serverResp.Status != 200 {
 			err = fmt.Errorf("API error %d: %s", serverResp.Status, serverResp.Msg)
 			// A rejected credential — rotate to the next pair in the pool.
-			if isUploadAuthError(err) && u.creds.count() > 1 {
-				u.creds.rotate()
-				lastErr = err
-				continue
+			if isUploadAuthError(err) {
+				if u.creds.count() > 1 {
+					u.creds.rotate()
+					lastErr = err
+					continue
+				}
+				// Single credential is auth-rejected - mark host as dead for this run
+				// by returning the error so caller can handle it
+				return "", err
 			}
 			return "", err
 		}

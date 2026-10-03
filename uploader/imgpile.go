@@ -129,6 +129,7 @@ func (u *ImgPileUploader) Upload(filePath string) (string, error) {
 			// pace at the slower interval, then try once more after backing
 			// off instead of giving the file up entirely.
 			markImgPileRateLimited()
+			time.Sleep(imgPileCooldownInterval)
 			continue
 		}
 		if isFailFastError(err) {
