@@ -78,6 +78,13 @@ jobs:
       UPNSHARE_KEY: ${{ secrets.UPNSHARE_KEY }}
       DOODSTREAM_API_KEY: ${{ secrets.DOODSTREAM_API_KEY }}
       VOESX_API_KEY: ${{ secrets.VOESX_API_KEY }}
+      # VidMoly's secret is named VIDMOLY_KEY but the Go config and
+      # parallel-setup.ps1 read it as VIDMOLY_API_KEY, so map it across here.
+      VIDMOLY_API_KEY: ${{ secrets.VIDMOLY_KEY }}
+      # Streamtape needs both halves of the account. Without these the node
+      # keeps whatever stale pair is baked into the MINI_ENV blob.
+      STREAMTAPE_LOGIN: ${{ secrets.STREAMTAPE_LOGIN }}
+      STREAMTAPE_KEY: ${{ secrets.STREAMTAPE_KEY }}
       VIDARA_API_KEY: ${{ secrets.VIDARA_API_KEY }}
       AFFILIATE_WM: ${{ secrets.AFFILIATE_WM }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

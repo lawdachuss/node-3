@@ -446,6 +446,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:MINI_ENV)) {
       if ($ev -match '(?m)^IMGCHEST_TOKEN=') { $ev = $ev -replace '(?m)^IMGCHEST_TOKEN=.*$', "IMGCHEST_TOKEN=$env:IMGCHEST_TOKEN" } else { $ev = $ev.TrimEnd("`r","`n") + "`nIMGCHEST_TOKEN=$env:IMGCHEST_TOKEN`n" } }
     if (-not [string]::IsNullOrWhiteSpace($env:IMGPILE_KEY)) {
       if ($ev -match '(?m)^IMGPILE_KEY=') { $ev = $ev -replace '(?m)^IMGPILE_KEY=.*$', "IMGPILE_KEY=$env:IMGPILE_KEY" } else { $ev = $ev.TrimEnd("`r","`n") + "`nIMGPILE_KEY=$env:IMGPILE_KEY`n" } }
+    # Streamtape needs BOTH halves: the FTP/API username and the password.
+    # Without this pair the node falls back to whatever stale values happen to
+    # be baked into the MINI_ENV blob, which silently keeps the old account.
+    if (-not [string]::IsNullOrWhiteSpace($env:STREAMTAPE_LOGIN)) {
+      if ($ev -match '(?m)^STREAMTAPE_LOGIN=') { $ev = $ev -replace '(?m)^STREAMTAPE_LOGIN=.*$', "STREAMTAPE_LOGIN=$env:STREAMTAPE_LOGIN" } else { $ev = $ev.TrimEnd("`r","`n") + "`nSTREAMTAPE_LOGIN=$env:STREAMTAPE_LOGIN`n" } }
+    if (-not [string]::IsNullOrWhiteSpace($env:STREAMTAPE_KEY)) {
+      if ($ev -match '(?m)^STREAMTAPE_KEY=') { $ev = $ev -replace '(?m)^STREAMTAPE_KEY=.*$', "STREAMTAPE_KEY=$env:STREAMTAPE_KEY" } else { $ev = $ev.TrimEnd("`r","`n") + "`nSTREAMTAPE_KEY=$env:STREAMTAPE_KEY`n" } }
     [System.IO.File]::WriteAllText("$repoDir\.env", $ev, (New-Object System.Text.UTF8Encoding($false)))
   }
 } else { Write-Warning "[.env] MINI_ENV secret is empty" }
