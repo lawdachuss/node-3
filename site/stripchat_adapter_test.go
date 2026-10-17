@@ -46,6 +46,33 @@ func TestParsePageState(t *testing.T) {
 	}
 }
 
+// TestApplyV2CamFieldsPreservesUserPreviews verifies the fix for the live
+// thumbnail regression: the cam object no longer carries previewUrl/snapshotTs
+// (verified absent for live models as of 2026-10), and the normalisation must
+// not wipe the valid preview data that lives on user.user.
+func TestApplyV2CamFieldsPreservesUserPreviews(t *testing.T) {
+	state := &scPageState{}
+	state.ViewCamBase.Model.PreviewUrlThumbBig = "https://static-proxy.strpst.com/previews/5/b/6/x-thumb-big"
+	state.ViewCamBase.Model.SnapshotTimestamp = 1792260480
+
+	// Current API reality: cam object without preview fields.
+	cam := &scV2Cam{StreamName: "270762678", IsCamActive: true, Topic: "#fun"}
+	applyV2CamFields(state, cam)
+	if state.ViewCamBase.Model.PreviewUrlThumbBig == "" || state.ViewCamBase.Model.SnapshotTimestamp == 0 {
+		t.Fatalf("user.user previews wiped by empty cam fields: %+v", state.ViewCamBase.Model)
+	}
+	if state.ViewCam.StreamName != "270762678" || !state.ViewCam.IsCamActive {
+		t.Fatalf("cam fields not applied: %+v", state.ViewCam)
+	}
+
+	// Legacy behaviour: when the cam object does provide previews, they win.
+	cam = &scV2Cam{PreviewURL: "https://img.example/new-thumb", SnapshotTs: 42}
+	applyV2CamFields(state, cam)
+	if state.ViewCamBase.Model.PreviewUrlThumbBig != "https://img.example/new-thumb" || state.ViewCamBase.Model.SnapshotTimestamp != 42 {
+		t.Fatalf("cam previews did not override: %+v", state.ViewCamBase.Model)
+	}
+}
+
 // TestFindJSONObjectEnd tests JSON object boundary detection.
 func TestFindJSONObjectEnd(t *testing.T) {
 	s := `window.__PRELOADED_STATE__ = {"a": {"b": 1}, "c": "}"}; window.other = 1;`

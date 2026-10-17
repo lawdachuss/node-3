@@ -230,14 +230,27 @@ func fetchStripchatV2API(ctx context.Context, req *internal.Req, username string
 	if state.ViewCamBase.Model.BroadcastGender == "" {
 		state.ViewCamBase.Model.BroadcastGender = resp.User.User.Gender
 	}
-	state.ViewCamBase.Model.PreviewUrlThumbBig = cam.PreviewURL
-	state.ViewCamBase.Model.SnapshotTimestamp = cam.SnapshotTs
+	applyV2CamFields(state, &cam)
+
+	return state, statusCode, nil
+}
+
+// applyV2CamFields overlays the cam-object fields onto the normalised page
+// state. The cam object stopped exposing previewUrl/snapshotTs (verified absent
+// for live models as of 2026-10); the preview data now lives only on
+// user.user. Only overwrite when the cam object actually provides a value,
+// otherwise the valid user.user preview URL would be wiped.
+func applyV2CamFields(state *scPageState, cam *scV2Cam) {
 	state.ViewCam.StreamName = cam.StreamName
 	state.ViewCam.ViewServers = cam.ViewServers
 	state.ViewCam.IsCamActive = cam.IsCamActive
 	state.ViewCam.Topic = cam.Topic
-
-	return state, statusCode, nil
+	if cam.PreviewURL != "" {
+		state.ViewCamBase.Model.PreviewUrlThumbBig = cam.PreviewURL
+	}
+	if cam.SnapshotTs != 0 {
+		state.ViewCamBase.Model.SnapshotTimestamp = cam.SnapshotTs
+	}
 }
 
 // fetchStripchatSSRPage parses the model page HTML for window.__PRELOADED_STATE__.

@@ -131,19 +131,29 @@ func ResetPDKeyCache() {
 }
 
 // ParsePKeyFromMaster extracts the pkey from a master playlist's
-// #EXT-X-MOUFLON:PSCH:v2:{pkey} line. Returns empty string if not found.
+// #EXT-X-MOUFLON:PSCH:v2:{pkey} lines. The playlist lists many decoy pkeys and
+// the first line is not guaranteed to remain one we hold a pdkey for, so a
+// pkey present in knownPDKeys is preferred; otherwise the first listed pkey is
+// returned (the runtime fallback then brute-forces candidates from player JS).
 func ParsePKeyFromMaster(masterBody string) string {
+	first := ""
 	for _, line := range strings.Split(masterBody, "\n") {
 		line = strings.TrimRight(line, "\r\n ")
 		if strings.HasPrefix(line, "#EXT-X-MOUFLON:PSCH:") {
 			// Format: #EXT-X-MOUFLON:PSCH:v2:{pkey}
 			parts := strings.SplitN(line, ":", 4)
 			if len(parts) == 4 {
-				return parts[3]
+				pkey := parts[3]
+				if _, ok := knownPDKeys[pkey]; ok {
+					return pkey
+				}
+				if first == "" {
+					first = pkey
+				}
 			}
 		}
 	}
-	return ""
+	return first
 }
 
 // DecryptMouflonURI decrypts the encrypted token in a MOUFLON v2 segment URI.
