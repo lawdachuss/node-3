@@ -28,6 +28,7 @@ import (
 	"github.com/teacat/chaturbate-dvr/internal"
 	"github.com/teacat/chaturbate-dvr/server"
 	"github.com/teacat/chaturbate-dvr/site"
+	"github.com/teacat/chaturbate-dvr/uploadkeys"
 )
 
 // IndexData represents the data structure for the index page.
@@ -149,6 +150,13 @@ type AdminData struct {
 	// inferring it from absent uploads. Empty (and the section hidden) when no
 	// host is backed off.
 	HostBackoffs []HostBackoffView
+
+	// UploadKeys is the central upload-credential store (per host: the
+	// configured keys with live health) rendered by the Upload Keys panel.
+	UploadKeys []uploadkeys.HostView
+	// UploadKeyTotal is the number of configured keys across all hosts (the
+	// panel's count badge).
+	UploadKeyTotal int
 }
 
 // HostBackoffView is one active fleet-wide upload-host backoff rendered on the
@@ -516,6 +524,8 @@ func AdminPage(c *gin.Context) {
 	// inflate the pool load total.
 	totalNodeLoad = sumNodeLoad(nodes)
 
+	uploadKeys := uploadkeys.Snapshot()
+
 	c.HTML(200, "admin.html", &AdminData{
 		Config:   server.Config,
 		Channels: channels,
@@ -550,7 +560,20 @@ func AdminPage(c *gin.Context) {
 		MyNodeID:      server.NodeID(),
 
 		HostBackoffs: loadHostBackoffs(),
+
+		UploadKeys:     uploadKeys,
+		UploadKeyTotal: uploadKeyTotal(uploadKeys),
 	})
+}
+
+// uploadKeyTotal sums the configured keys across every host for the panel's
+// count badge.
+func uploadKeyTotal(views []uploadkeys.HostView) int {
+	n := 0
+	for _, v := range views {
+		n += len(v.Keys)
+	}
+	return n
 }
 
 // CreateChannelRequest represents the request body for creating a channel.
@@ -730,7 +753,11 @@ func UpdateConfig(c *gin.Context) {
 
 	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop / Vidara)
 	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" || req.VidMolyKey != "" {
-			server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
+		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
+		// Mirror the submitted credentials into the central upload-key store
+		// so this legacy rotation is fleet-wide and is not overwritten by the
+		// central set on the next sync.
+		uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
 	}
 
 	if err := server.SaveSettings(); err != nil {
@@ -742,6 +769,106 @@ func UpdateConfig(c *gin.Context) {
 		return
 	}
 	c.Redirect(http.StatusFound, "/")
+}
+
+// ── Upload keys API ────────────────────────────────────────────────────────
+// The admin page's Upload Keys panel drives these. All four are covered by
+// the engine-wide basic auth when configured (SetupAuth).
+
+// UploadKeyAddRequest is the body for adding one credential.
+type UploadKeyAddRequest struct {
+	Host  string `json:"host" form:"host"`
+	Key   string `json:"key" form:"key"`
+	Login string `json:"login" form:"login"`
+	Email string `json:"email" form:"email"`
+	Token string `json:"token" form:"token"`
+}
+
+// UploadKeyRemoveRequest is the body for removing one credential.
+type UploadKeyRemoveRequest struct {
+	Host        string `json:"host" form:"host"`
+	Fingerprint string `json:"fingerprint" form:"fingerprint"`
+}
+
+// UploadKeyProbeRequest is the body for probing one credential (or, with both
+// fields empty, every configured credential).
+type UploadKeyProbeRequest struct {
+	Host        string `json:"host" form:"host"`
+	Fingerprint string `json:"fingerprint" form:"fingerprint"`
+}
+
+// GetUploadKeys returns every managed host with its configured keys and
+// current health — the panel's data source, polled by the admin page.
+func GetUploadKeys(c *gin.Context) {
+	views := uploadkeys.Snapshot()
+	total := 0
+	for _, v := range views {
+		total += len(v.Keys)
+	}
+	c.JSON(http.StatusOK, gin.H{"hosts": views, "total": total})
+}
+
+// AddUploadKey appends a credential to a host's central list, applies it
+// fleet-wide, and probes it immediately.
+func AddUploadKey(c *gin.Context) {
+	var req UploadKeyAddRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bind: %v", err)})
+		return
+	}
+	if err := uploadkeys.Add(req.Host, uploadkeys.Cred{
+		Key:   req.Key,
+		Login: req.Login,
+		Email: req.Email,
+		Token: req.Token,
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "hosts": uploadkeys.Snapshot()})
+}
+
+// RemoveUploadKey drops a credential from a host's central list.
+func RemoveUploadKey(c *gin.Context) {
+	var req UploadKeyRemoveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bind: %v", err)})
+		return
+	}
+	if err := uploadkeys.Remove(req.Host, req.Fingerprint); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "hosts": uploadkeys.Snapshot()})
+}
+
+// ProbeUploadKeys checks one credential (host+fingerprint) or, when both are
+// empty, every configured credential, and returns the refreshed snapshot.
+func ProbeUploadKeys(c *gin.Context) {
+	var req UploadKeyProbeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bind: %v", err)})
+		return
+	}
+	if req.Host != "" && req.Fingerprint != "" {
+		ks, err := uploadkeys.ProbeNow(req.Host, req.Fingerprint)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "status": ks, "hosts": uploadkeys.Snapshot()})
+		return
+	}
+	views, err := uploadkeys.ProbeAllNow()
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	total := 0
+	for _, v := range views {
+		total += len(v.Keys)
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "hosts": views, "total": total})
 }
 
 // extractCookieValue parses a value for the given cookie name from a cookie string.

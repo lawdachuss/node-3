@@ -189,6 +189,22 @@
         details.section summary .badge.offline { background: rgba(113,113,122,0.12); color: #71717a; }
         details.section summary .badge.draining { background: rgba(245,158,11,0.15); color: #f59e0b; }
         details.section summary .badge.uploading { background: rgba(59,130,246,0.15); color: #3b82f6; }
+
+        /* ── Upload Keys panel ── */
+        .uk-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 14px; flex-wrap: wrap; }
+        .uk-note { font-size: 11px; color: var(--text-muted); line-height: 1.5; max-width: 720px; }
+        .uk-host { margin-bottom: 18px; }
+        .uk-host-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .uk-probeable, .uk-passive { font-size: 10px; color: var(--text-muted); }
+        .uk-badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+        .uk-healthy { background: rgba(16,185,129,0.15); color: #10b981; }
+        .uk-dead { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .uk-quota { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .uk-unknown { background: rgba(59,130,246,0.15); color: #3b82f6; }
+        .uk-untested { background: rgba(113,113,122,0.12); color: #71717a; }
+        .uk-add { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+        .uk-input { flex: 1; min-width: 150px; font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-input); color: inherit; font-family: ui-monospace, monospace; }
+        .uk-msg { max-width: 340px; overflow-wrap: anywhere; color: var(--text-muted); }
         details.section .section-body {
             padding: 0 18px 18px;
             border-top: 1px solid var(--border-color);
@@ -826,6 +842,63 @@
                     {{ end }}
                 </tbody>
             </table>
+        </div>
+    </details>
+
+    <!-- ════════ UPLOAD KEYS ════════ -->
+    <details class="section" open>
+        <summary>
+            <span class="arrow">▶</span>
+            Upload Keys <span class="count" id="uk-total">{{ .UploadKeyTotal }}</span>
+            <span class="badge online">live health</span>
+        </summary>
+        <div class="section-body">
+            <div class="uk-toolbar">
+                <span class="uk-note">Keys are stored centrally in Supabase — adding or removing one here reaches every node (applied within ~20 min, no restart). Statuses refresh live: each key is auto-checked about every 2h, and a key is flagged the moment an upload rotates away from it.</span>
+                <button type="button" class="btn-action" data-act="probe-all">Check all now</button>
+            </div>
+            <div id="uk-hosts">
+                {{ range .UploadKeys }}
+                <div class="uk-host" data-host="{{ .Host }}">
+                    <div class="uk-host-head">
+                        <strong>{{ .Label }}</strong>
+                        {{ if .Probeable }}<span class="uk-probeable">auto-checked</span>{{ else }}<span class="uk-passive">no check API — judged from live uploads; first listed account is used</span>{{ end }}
+                    </div>
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Key</th>
+                                <th>Status</th>
+                                <th>Last Checked</th>
+                                <th>Detail</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody class="uk-tbody">
+                            {{ range .Keys }}
+                            <tr data-fp="{{ .Fingerprint }}">
+                                <td class="mono">{{ .Display }}</td>
+                                <td><span class="uk-badge uk-{{ .Status }}">{{ .Status }}</span></td>
+                                <td class="mono" style="font-size:10px">{{ timefmt .LastChecked }}</td>
+                                <td class="uk-msg">{{ .Message }}</td>
+                                <td style="white-space:nowrap">
+                                    <button type="button" class="btn-action" data-act="probe">Test</button>
+                                    <button type="button" class="btn-action btn-action-del" data-act="remove">✕</button>
+                                </td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="empty-state">No keys configured</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                    <div class="uk-add">
+                        {{ range .Fields }}{{ if eq . "key" }}<input type="password" data-field="key" class="uk-input" placeholder="API key" />{{ end }}{{ if eq . "login" }}<input type="text" data-field="login" class="uk-input" placeholder="Login" />{{ end }}{{ if eq . "email" }}<input type="text" data-field="email" class="uk-input" placeholder="Email" />{{ end }}{{ if eq . "token" }}<input type="password" data-field="token" class="uk-input" placeholder="Token" />{{ end }}{{ end }}
+                        <button type="button" class="btn-action" data-act="add">＋ Add</button>
+                    </div>
+                </div>
+                {{ end }}
+            </div>
+            <div class="uk-note"><strong>dead</strong> = the host explicitly rejected the key (replace it). <strong>quota</strong> = valid key, account capped for now (recovers on its own). <strong>unknown</strong> = the check could not reach a verdict (host down / block page) — the key was NOT written off.</div>
         </div>
     </details>
 
@@ -1872,6 +1945,149 @@ function channelAction(action, username) {
     });
 }
 
+</script>
+
+<script>
+// ── Upload Keys panel ─────────────────────────────────────────────────────
+// Polls /api/upload_keys every 45s for live health, and drives the
+// add / remove / test buttons. Row status cells are re-rendered from JSON;
+// the add-form inputs live OUTSIDE the tbody so a poll never wipes typing.
+
+var _ukTimer = null;
+(function() { startUploadKeyPoll(); })();
+
+function startUploadKeyPoll() {
+    if (_ukTimer) clearInterval(_ukTimer);
+    pollUploadKeys();
+    _ukTimer = setInterval(pollUploadKeys, 45000);
+}
+
+function pollUploadKeys() {
+    fetch('/api/upload_keys')
+        .then(function(r) { return r.json(); })
+        .then(function(data) { if (data && data.hosts) updateUploadKeys(data); })
+        .catch(function() {/* silent */});
+}
+
+function ukEsc(s) {
+    var d = document.createElement('div');
+    d.textContent = (s == null) ? '' : String(s);
+    return d.innerHTML;
+}
+
+function ukBadge(status) {
+    var m = {
+        healthy:  ['uk-healthy', 'healthy'],
+        dead:     ['uk-dead', 'dead'],
+        quota:    ['uk-quota', 'quota'],
+        unknown:  ['uk-unknown', 'unknown'],
+        untested: ['uk-untested', 'untested']
+    };
+    var v = m[status] || m['untested'];
+    return '<span class="uk-badge ' + v[0] + '">' + v[1] + '</span>';
+}
+
+function ukFmtTime(iso) {
+    if (!iso || iso.indexOf('0001-') === 0) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function updateUploadKeys(data) {
+    var total = 0;
+    (data.hosts || []).forEach(function(hv) {
+        var hostEl = document.querySelector('.uk-host[data-host="' + hv.host + '"]');
+        if (!hostEl) return;
+        var html = '';
+        (hv.keys || []).forEach(function(k) {
+            total++;
+            html += '<tr data-fp="' + ukEsc(k.fingerprint) + '">'
+                + '<td class="mono">' + ukEsc(k.display) + '</td>'
+                + '<td>' + ukBadge(k.status) + '</td>'
+                + '<td class="mono" style="font-size:10px">' + ukFmtTime(k.last_checked) + '</td>'
+                + '<td class="uk-msg">' + ukEsc(k.message) + '</td>'
+                + '<td style="white-space:nowrap">'
+                + '<button type="button" class="btn-action" data-act="probe">Test</button> '
+                + '<button type="button" class="btn-action btn-action-del" data-act="remove">✕</button>'
+                + '</td></tr>';
+        });
+        var tb = hostEl.querySelector('.uk-tbody');
+        if (tb) tb.innerHTML = html || '<tr><td colspan="5" class="empty-state">No keys configured</td></tr>';
+    });
+    var tot = document.getElementById('uk-total');
+    if (tot) tot.textContent = (data.total != null) ? data.total : total;
+}
+
+function ukPost(url, body) {
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    }).then(function(r) {
+        return r.json().then(function(d) {
+            if (!r.ok) alert(d.error || ('HTTP ' + r.status));
+            return d;
+        });
+    });
+}
+
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!btn || !btn.closest) return;
+    var inHosts = btn.closest('#uk-hosts');
+    var act = btn.getAttribute('data-act');
+    if (act === 'probe-all') {
+        btn.disabled = true;
+        ukPost('/api/upload_keys/probe', {}).then(function(d) {
+            btn.disabled = false;
+            if (d.ok) updateUploadKeys(d);
+        }).catch(function() { btn.disabled = false; });
+        return;
+    }
+    if (!inHosts) return;
+    var hostEl = btn.closest('.uk-host');
+    if (!hostEl) return;
+    var host = hostEl.getAttribute('data-host');
+    if (act === 'add') {
+        var fields = {};
+        hostEl.querySelectorAll('.uk-add [data-field]').forEach(function(inp) {
+            fields[inp.getAttribute('data-field')] = inp.value.trim();
+        });
+        btn.disabled = true;
+        ukPost('/api/upload_keys/add', {
+            host: host,
+            key: fields.key || '',
+            login: fields.login || '',
+            email: fields.email || '',
+            token: fields.token || ''
+        }).then(function(d) {
+            btn.disabled = false;
+            if (d.ok) {
+                hostEl.querySelectorAll('.uk-add [data-field]').forEach(function(inp) { inp.value = ''; });
+                updateUploadKeys(d);
+                setTimeout(pollUploadKeys, 3000); // probe result lands shortly after
+            }
+        }).catch(function() { btn.disabled = false; });
+    } else if (act === 'remove') {
+        var row = btn.closest('tr');
+        var fp = row && row.getAttribute('data-fp');
+        if (!fp) return;
+        if (!confirm('Remove this ' + host + ' key from the whole fleet?')) return;
+        ukPost('/api/upload_keys/remove', { host: host, fingerprint: fp }).then(function(d) {
+            if (d.ok) updateUploadKeys(d);
+        }).catch(function(err) { alert('Remove failed: ' + err); });
+    } else if (act === 'probe') {
+        var prow = btn.closest('tr');
+        var pfp = prow && prow.getAttribute('data-fp');
+        if (!pfp) return;
+        btn.disabled = true;
+        ukPost('/api/upload_keys/probe', { host: host, fingerprint: pfp }).then(function(d) {
+            if (d.ok) { updateUploadKeys(d); }
+        }).finally(function() { btn.disabled = false; });
+    }
+});
 </script>
 </body>
 </html>

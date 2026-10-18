@@ -35,8 +35,10 @@ type VoeSXUploader struct {
 // own ring from the passed value / env, so concurrent uploaders each rotate
 // independently (the first upload on a bad key rotates it for that instance).
 func NewVoeSXUploader(apiKey string) *VoeSXUploader {
+	ring := buildRingFromEnv("VOESX_API_KEY", apiKey)
+	ring.host = "VoeSX"
 	return &VoeSXUploader{
-		keys:   buildRingFromEnv("VOESX_API_KEY", apiKey),
+		keys:   ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute,
 			Transport: &http.Transport{
@@ -140,7 +142,7 @@ func (u *VoeSXUploader) UploadWithProgress(filePath string, progress ProgressFun
 				// is exactly how the daily allowance gets burned (see the
 				// VidMoly daily-limit lesson).
 				if isVoeStorageFull(err) {
-					u.keys.rotate()
+					u.keys.rotateReason("storage quota full")
 					lastErr = nil
 					break
 				}
@@ -152,7 +154,7 @@ func (u *VoeSXUploader) UploadWithProgress(filePath string, progress ProgressFun
 				// Invalid auth (expired/revoked key): rotate to the next key and
 				// stop retrying the bad one.
 				if isVoeAuthError(err) {
-					u.keys.rotate()
+					u.keys.rotateReason("authentication rejected")
 					lastErr = nil
 					break
 				}

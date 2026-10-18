@@ -33,8 +33,10 @@ type VidaraUploader struct {
 // is invalidated.  Each instance builds its own ring from the passed value /
 // env, so concurrent uploaders each rotate independently.
 func NewVidaraUploader(apiKey string) *VidaraUploader {
+	ring := buildRingFromEnv("VIDARA_KEY", apiKey)
+	ring.host = "Vidara"
 	return &VidaraUploader{
-		keys:   buildRingFromEnv("VIDARA_KEY", apiKey),
+		keys:   ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute, // Long timeout for large video uploads
 			Transport: &http.Transport{
@@ -143,7 +145,7 @@ func (u *VidaraUploader) UploadWithProgress(filePath string, progress ProgressFu
 				}
 				// Invalid/expired key for THIS key: rotate to the next key.
 				if isVidaraAuthError(err) {
-					u.keys.rotate()
+					u.keys.rotateReason("authentication rejected")
 					lastErr = nil
 					break
 				}

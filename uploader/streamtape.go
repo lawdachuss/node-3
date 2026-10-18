@@ -11,19 +11,51 @@ import (
 	"time"
 )
 
+// streamtapeAPIBase is a var (not const) so tests can point it at a fake server.
+var streamtapeAPIBase = "https://api.streamtape.com"
+
 // buildStreamtapeCredList assembles the credential list handed to the ring
 // constructor: env `STREAMTAPE_CREDS` (comma-separated `login:key` pairs) takes
-// precedence, then the single login/key passed by the caller.  This mirrors
+// precedence, then the login/key passed by the caller — which may itself be two
+// comma-separated lists (see zipStreamtapeCreds) so the central upload-key
+// store can hand the fleet several accounts.  This mirrors
 // buildRingFromEnv/buildVidMolyKeyList so operators can hand each node its own
 // pool without code changes.
 func buildStreamtapeCredList(login, key string) string {
-	if login == "" || key == "" {
-		return strings.TrimSpace(os.Getenv("STREAMTAPE_CREDS"))
-	}
 	if raw := strings.TrimSpace(os.Getenv("STREAMTAPE_CREDS")); raw != "" {
 		return raw
 	}
-	return login + ":" + key
+	return zipStreamtapeCreds(login, key)
+}
+
+// zipStreamtapeCreds pairs comma-separated login and key lists into `login:key`
+// ring entries (l1,l2 × k1,k2 → "l1:k1,l2:k2").  A single pair degenerates to
+// one entry — the pre-existing behavior.  Unmatched extras are dropped rather
+// than paired with an empty half, which the ring would reject as malformed.
+func zipStreamtapeCreds(login, key string) string {
+	logins := splitCSVList(login)
+	keys := splitCSVList(key)
+	n := len(logins)
+	if len(keys) < n {
+		n = len(keys)
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, logins[i]+":"+keys[i])
+	}
+	return strings.Join(out, ",")
+}
+
+// splitCSVList splits a comma-separated list, trimming whitespace and dropping
+// empty entries (shared by the streamtape zip and the key manager).
+func splitCSVList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // StreamtapeUploader handles uploading files to Streamtape
@@ -44,8 +76,9 @@ func NewStreamtapeUploader(login, key string) *StreamtapeUploader {
 		// "authentication failed" instead of an empty-key panic.
 		ring = newKeyRing(login + ":" + key)
 	}
+	ring.host = "Streamtape"
 	return &StreamtapeUploader{
-		creds:  ring,
+		creds: ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute,
 			Transport: &http.Transport{
@@ -131,11 +164,11 @@ func (u *StreamtapeUploader) getUploadURL() (string, error) {
 		login, key, ok := splitStreamtapeCred(u.creds.current())
 		if !ok {
 			lastErr = fmt.Errorf("invalid streamtape credential (want login:key)")
-			u.creds.rotate()
+			u.creds.rotateReason("invalid credential format")
 			continue
 		}
 
-		url := fmt.Sprintf("https://api.streamtape.com/file/ul?login=%s&key=%s", login, key)
+		url := fmt.Sprintf("%s/file/ul?login=%s&key=%s", streamtapeAPIBase, login, key)
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			return "", fmt.Errorf("create request: %w", err)
@@ -164,7 +197,7 @@ func (u *StreamtapeUploader) getUploadURL() (string, error) {
 			// A rejected credential — rotate to the next pair in the pool.
 			if isUploadAuthError(err) {
 				if u.creds.count() > 1 {
-					u.creds.rotate()
+					u.creds.rotateReason("authentication failed")
 					lastErr = err
 					continue
 				}

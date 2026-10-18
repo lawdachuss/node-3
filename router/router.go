@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/teacat/chaturbate-dvr/entity"
@@ -115,6 +116,12 @@ func SetupViews(r *gin.Engine) {
 	r.POST("/api/session/stop", TriggerSessionStop)
 	r.POST("/api/session/duration", SetSessionDuration)
 
+	// ── Upload keys API (central credential store + live health) ─────────
+	r.GET("/api/upload_keys", GetUploadKeys)
+	r.POST("/api/upload_keys/add", AddUploadKey)
+	r.POST("/api/upload_keys/remove", RemoveUploadKey)
+	r.POST("/api/upload_keys/probe", ProbeUploadKeys)
+
 	// ── Distributed shards / nodes UI ─────────────────────────────────────
 	r.GET("/nodes", NodesPage)
 	r.GET("/pool", PoolPage)
@@ -170,6 +177,14 @@ func templateFuncs() template.FuncMap {
 		},
 		"divBytes": func(b int64) float64 { return float64(b) / 1024 / 1024 },
 		"add": func(a, b int) int { return a + b },
+		// timefmt renders a timestamp for the admin tables; a zero time (key
+		// never checked) reads as an em dash instead of year 1.
+		"timefmt": func(t time.Time) string {
+			if t.IsZero() {
+				return "—"
+			}
+			return t.Local().Format("2006-01-02 15:04")
+		},
 		"isWebp": func(url string) bool { return strings.HasSuffix(url, ".webp") },
 		// proxy routes an external image URL (thumbnail/sprite/preview on the
 		// image hosts) through the DVR server so the browser loads it same-origin.

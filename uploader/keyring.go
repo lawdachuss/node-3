@@ -18,6 +18,28 @@ type keyRing struct {
 	mu    sync.Mutex
 	keys  []string
 	index int
+	// host labels this ring's owner (e.g. "VoeSX") so the key-death hook can
+	// attribute a rotated-away key to a host. Empty on rings built directly
+	// via newKeyRing in tests; an empty host suppresses hook reporting.
+	host string
+}
+
+// keyDeathHook, when set via SetKeyDeathHook, is invoked whenever a key is
+// rotated away from together with the host label and the reason. It is how
+// the upload-key manager learns in REAL TIME that a credential stopped
+// working, without waiting for its next periodic probe.
+var (
+	keyDeathHookMu sync.RWMutex
+	keyDeathHook   func(host, key, reason string)
+)
+
+// SetKeyDeathHook installs the process-wide key-death reporter. Pass nil to
+// remove it. Safe for concurrent use; hooks are called without any ring lock
+// held, so the reporter may call back into the uploader package.
+func SetKeyDeathHook(fn func(host, key, reason string)) {
+	keyDeathHookMu.Lock()
+	keyDeathHook = fn
+	keyDeathHookMu.Unlock()
 }
 
 // newKeyRing builds a ring from a comma-separated key list.
@@ -44,10 +66,32 @@ func (kr *keyRing) current() string {
 
 // rotate advances to the next key in the ring.  No-op for a single-key ring.
 func (kr *keyRing) rotate() {
+	kr.rotateReason("")
+}
+
+// rotateReason advances to the next key and reports the key being abandoned —
+// and why — to the key-death hook. A blank host (rings constructed directly
+// in tests) or no installed hook makes this behave exactly like rotate().
+func (kr *keyRing) rotateReason(reason string) {
 	kr.mu.Lock()
-	defer kr.mu.Unlock()
+	dead := ""
+	if kr.index < len(kr.keys) {
+		dead = kr.keys[kr.index]
+	}
 	if len(kr.keys) > 1 {
 		kr.index = (kr.index + 1) % len(kr.keys)
+	}
+	host := kr.host
+	kr.mu.Unlock()
+
+	if dead == "" || host == "" {
+		return
+	}
+	keyDeathHookMu.RLock()
+	fn := keyDeathHook
+	keyDeathHookMu.RUnlock()
+	if fn != nil {
+		fn(host, dead, reason)
 	}
 }
 

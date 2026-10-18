@@ -10,6 +10,7 @@ import (
 	"github.com/teacat/chaturbate-dvr/database"
 	"github.com/teacat/chaturbate-dvr/entity"
 	"github.com/teacat/chaturbate-dvr/router/view"
+	"github.com/teacat/chaturbate-dvr/uploadkeys"
 )
 
 // loadAllTemplates parses every production template with the exact FuncMap and
@@ -113,10 +114,67 @@ func TestAdminTemplateRendersCompletely(t *testing.T) {
 			{Username: "test", Site: "chaturbate", AssignedNode: "node-test", Status: "recording", IsLive: true, AssignedAt: "now", Resolution: 1080, Framerate: 60},
 		},
 		PipelineMap: map[string]ChannelPipelinesEntry{"test": {Username: "test", Queued: 1}},
-		OnlineNodes:  1,
-		PoolMode:     "pooled",
-		MyNodeID:     "node-test",
+		OnlineNodes: 1,
+		PoolMode:    "pooled",
+		MyNodeID:    "node-test",
 	})
+}
+
+// TestAdminTemplateRendersUploadKeysPanel verifies the Upload Keys panel
+// renders its per-host tables, health badges, per-host add forms, and the
+// "never checked" timestamp — the pieces the operator uses to spot a dead key
+// at a glance.
+func TestAdminTemplateRendersUploadKeysPanel(t *testing.T) {
+	out := renderTemplate(t, "admin.html", &AdminData{
+		Config:  &entity.Config{},
+		Disk:    &entity.DiskInfo{},
+		Uploads: &entity.UploadsResponse{},
+		UploadKeys: []uploadkeys.HostView{
+			{
+				Host: "VoeSX", Label: "VOE.sx", Probeable: true, Fields: []string{"key"},
+				Keys: []uploadkeys.KeyView{
+					{Fingerprint: "fp-dead-0001", Display: "••••wxyz", Status: "dead", Message: "authentication rejected"},
+					{Fingerprint: "fp-new-0002", Display: "••••abcd", Status: "untested"},
+				},
+			},
+			{
+				Host: "Streamtape", Label: "Streamtape", Probeable: true, Fields: []string{"login", "key"},
+				Keys: []uploadkeys.KeyView{
+					{Fingerprint: "fp-st-0003", Display: "••••9876", Status: "healthy"},
+				},
+			},
+			{
+				Host: "Mixdrop", Label: "Mixdrop", Probeable: false, Fields: []string{"email", "token"},
+			},
+		},
+		UploadKeyTotal: 3,
+	})
+
+	for _, want := range []string{
+		`data-host="VoeSX"`,
+		`data-host="Streamtape"`,
+		`data-host="Mixdrop"`,
+		`id="uk-total">3<`,
+		`<span class="uk-badge uk-dead">dead</span>`,
+		`<span class="uk-badge uk-untested">untested</span>`,
+		`<span class="uk-badge uk-healthy">healthy</span>`,
+		`data-fp="fp-dead-0001"`,
+		`authentication rejected`,
+		`data-field="key"`,
+		`data-field="login"`,
+		`data-field="email"`,
+		`data-field="token"`,
+		`data-act="probe-all"`,
+		`—`, // zero LastChecked renders as an em dash via timefmt
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered admin page missing %q", want)
+		}
+	}
+	// The unhealthy Streamtape row must NOT carry the dead badge.
+	if strings.Contains(out, `data-fp="fp-st-0003"`+"\n"+`<span class="uk-badge uk-dead">`) {
+		t.Error("healthy key wrongly badged dead")
+	}
 }
 
 func TestVideosTemplateRendersCompletely(t *testing.T) {
@@ -150,10 +208,10 @@ func TestNodesTemplateRendersCompletely(t *testing.T) {
 		Nodes: []database.Node{
 			{NodeID: "node-1", Hostname: "h", InstanceLabel: "i", SoftwareVersion: "v", Status: "online", CurrentLoad: 2, LastHeartbeat: "now", WebURL: "https://x", CreatedAt: "t"},
 		},
-		OnlineCount:  1,
-		TotalLoad:    2,
-		Mode:         "pooled",
-		MyNodeID:     "node-1",
+		OnlineCount: 1,
+		TotalLoad:   2,
+		Mode:        "pooled",
+		MyNodeID:    "node-1",
 	})
 }
 

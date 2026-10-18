@@ -45,8 +45,10 @@ type VidMolyUploader struct {
 // NewVidMolyUploader creates a new VidMoly uploader instance. The API key may
 // be a comma-separated list to enable rotation when a key is invalidated.
 func NewVidMolyUploader(apiKey string) *VidMolyUploader {
+	ring := buildRingFromEnv("VIDMOLY_KEY", apiKey)
+	ring.host = "VidMoly"
 	return &VidMolyUploader{
-		keys: buildRingFromEnv("VIDMOLY_KEY", apiKey),
+		keys: ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute, // Long timeout for large video uploads
 			Transport: &http.Transport{
@@ -139,7 +141,7 @@ func (u *VidMolyUploader) UploadWithProgress(filePath string, progress ProgressF
 				// 50.  Move to the next key; if none is left, the error reaches
 				// the caller, which skips VidMoly until tomorrow.
 				if isVidMolyDailyLimit(err) {
-					u.keys.rotate()
+					u.keys.rotateReason("daily api limit")
 					break
 				}
 				if isUploadRateLimited(err) {
@@ -153,7 +155,7 @@ func (u *VidMolyUploader) UploadWithProgress(filePath string, progress ProgressF
 				}
 				// Invalid/expired key for THIS key: rotate to the next key.
 				if isVidMolyAuthError(err) {
-					u.keys.rotate()
+					u.keys.rotateReason("authentication rejected")
 					lastErr = nil
 					break
 				}

@@ -27,6 +27,7 @@ import (
 	"github.com/teacat/chaturbate-dvr/router"
 	"github.com/teacat/chaturbate-dvr/server"
 	"github.com/teacat/chaturbate-dvr/site"
+	"github.com/teacat/chaturbate-dvr/uploadkeys"
 	"github.com/teacat/chaturbate-dvr/uploader"
 	"github.com/urfave/cli/v2"
 )
@@ -798,6 +799,14 @@ func start(c *cli.Context) error {
 			fmt.Printf("[startup] orphan cleanup: deleted %d stale recording(s) from previous run\n", deleted)
 		}
 	}()
+
+	// ── Central upload-key store ─────────────────────────────────────────
+	// Apply fleet-wide upload credentials from Supabase (app_settings
+	// upload_host_keys) over this node's env-derived values, seed the store
+	// from env on first use, and start the background prober so dead keys
+	// surface on the admin page in real time. Idempotent + best-effort: a
+	// Supabase outage only delays the sync to the next refresh cycle.
+	go uploadkeys.Start()
 
 	// ── Distributed coordinator ──────────────────────────────────────────
 	var coord *coordinator.Coordinator
