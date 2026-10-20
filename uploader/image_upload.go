@@ -154,15 +154,18 @@ func (m *MultiImageUploader) Upload(filePath string) (url, host string, err erro
 		freeimageErr = err
 	}
 
-	// ImgChest — only if token is configured
+	// ImgChest — only if token is configured.  Its 10 GB account storage
+	// quota is a fleet-wide cap on the shared token (fleet sweep 2026-10-20:
+	// every node rediscovered "You've used 42.4 GB of your 10 GB storage"
+	// once per session); the first strike disables it for ~24h fleet-wide so
+	// peers skip it too instead of re-paying one request each.
+	imgchestErr := fmt.Errorf("imgchest: IMGCHEST_TOKEN not set")
 	if m.imgchest.HasToken() {
-		url, err = uploadWithRetries(3, "ImgChest", func() (string, error) {
-			return m.imgchest.Upload(filePath)
-		})
+		url, err = m.tryImgChest(filePath)
 		if err == nil {
 			return url, "ImgChest", nil
 		}
-		imgchestErr := err
+		imgchestErr = err
 
 		// ImgPile — token host, NSFW-friendly (only if key is configured)
 		imgpileErr := fmt.Errorf("imgpile: IMGPILE_KEY not set")
@@ -237,6 +240,42 @@ func (m *MultiImageUploader) Upload(filePath string) (url, host string, err erro
 	}
 
 	return "", "", fmt.Errorf("catbox: %w (pixhost: %v, freeimage.host: %v, imgpile: %v, imgbox: %v)", catboxErr, pixhostErr, freeimageErr, imgpileErr, imgboxErr)
+}
+
+// tryImgChest runs the ImgChest leg of the image fallback chain with the
+// fleet-quota guard around it:
+//   - a host already backed off (this node's timed disable OR a peer's
+//     published fleet backoff) is skipped WITHOUT a request;
+//   - an account storage-quota rejection publishes a ~24h fleet-wide backoff
+//     (disableHostFor → Supabase host_backoffs) so the other 17 nodes stop
+//     rediscovering the dead quota once per session.
+//
+// Extracted as a seam so the quota wiring is testable without the upstream
+// image hosts (which would otherwise hit the network first).
+func (m *MultiImageUploader) tryImgChest(filePath string) (string, error) {
+	if !m.imgchest.HasToken() {
+		return "", fmt.Errorf("imgchest: IMGCHEST_TOKEN not set")
+	}
+	if isHostTimedOut("ImgChest") || isFleetHostBackedOff("ImgChest") {
+		err := fmt.Errorf("imgchest: skipped — storage quota exhausted on the shared account (auto re-enables at %s)", hostTimedOutUntil("ImgChest").Format(time.RFC3339))
+		log.Printf("upload: %v", err)
+		return "", err
+	}
+	url, err := uploadWithRetries(3, "ImgChest", func() (string, error) {
+		return m.imgchest.Upload(filePath)
+	})
+	if err == nil {
+		return url, nil
+	}
+	// The quota is unrecoverable within a session — publish the fleet-wide
+	// backoff so every node stops attempting ImgChest instead of each
+	// rediscovering the dead quota once (uploadWithRetries already bailed
+	// after one attempt: the 403 is a fail-fast error).
+	if isImgChestStorageFull(err) {
+		log.Printf("upload: ImgChest storage quota exceeded — disabling it for ~24 hours fleet-wide (free storage or raise the quota to restore early)")
+		disableHostFor("ImgChest", 24*time.Hour, "storage quota exceeded")
+	}
+	return "", err
 }
 
 // OnSuccessFunc is called the moment a single host finishes uploading,

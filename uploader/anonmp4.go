@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -173,6 +174,75 @@ func (u *AnonMP4Uploader) Upload(filePath string) (string, error) {
 	return u.UploadWithProgress(filePath, nil)
 }
 
+// isAnonMP4OriginDown reports whether the error is Cloudflare's HTTP 522
+// ("connection timed out" — the origin didn't answer the edge in time) at any
+// stage of the AnonMP4 flow: node assignment (the observed fleet site,
+// "anonmp4: node assignment: HTTP 522: error code: 522"), chunk upload, or
+// finalize — all three emit the same "HTTP %d: %s" shape.  Deliberately tight
+// on 522 alone: a 500/503/504 is a different failure class (server bug /
+// overload / edge timeout) and must never count toward the strike that
+// disables the host for the rest of the UTC day.
+func isAnonMP4OriginDown(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "http 522")
+}
+
+// anonmp4522MaxStrikes is how many origin-522 observations in one UTC day
+// flip the fleet-wide disable.  A single 522 can be a transient edge hiccup
+// (retry within the file's attempts), but repeated ones mean the origin is
+// down — and since the credential/endpoint is shared by every node, that is a
+// fleet cap, not a per-node one (the VidMoly daily-cap bug, findings #3, all
+// over again: without the day lease every node rediscovers the dead origin
+// file after file).
+const anonmp4522MaxStrikes = 3
+
+var (
+	anonmp4StrikeMu    sync.Mutex
+	anonmp4StrikeDay   string // UTC yyyy-mm-dd the counter below belongs to
+	anonmp4StrikeCount int
+	anonmp4StrikeFired bool // the disable already fired for anonmp4StrikeDay
+)
+
+// recordAnonMP4OriginDown counts one observed origin-522 failure against the
+// current UTC day.  On the strike that reaches anonmp4522MaxStrikes it flips
+// the fleet-wide disable exactly once (disableHostFor → upload_host_backoffs,
+// 5-minute peer poll) with an expiry at the next UTC midnight, and reports
+// whether THIS call fired it.  The day rolls over automatically.
+func recordAnonMP4OriginDown() (strikes int, disabled bool) {
+	now := time.Now().UTC()
+	day := now.Format("2006-01-02")
+
+	anonmp4StrikeMu.Lock()
+	if anonmp4StrikeDay != day {
+		anonmp4StrikeDay = day
+		anonmp4StrikeCount = 0
+		anonmp4StrikeFired = false
+	}
+	anonmp4StrikeCount++
+	strikes = anonmp4StrikeCount
+	disabled = strikes >= anonmp4522MaxStrikes && !anonmp4StrikeFired
+	if disabled {
+		anonmp4StrikeFired = true
+	}
+	anonmp4StrikeMu.Unlock()
+
+	if disabled {
+		nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+		disableHostFor("AnonMP4", time.Until(nextMidnight), "origin 522 (upstream outage)")
+	}
+	return strikes, disabled
+}
+
+// resetAnonMP4522StrikesForTest zeroes the strike counter and day key (test
+// hook — the counter is package-level state shared across tests).
+func resetAnonMP4522StrikesForTest() {
+	anonmp4StrikeMu.Lock()
+	defer anonmp4StrikeMu.Unlock()
+	anonmp4StrikeDay, anonmp4StrikeCount, anonmp4StrikeFired = "", 0, false
+}
+
 // UploadWithProgress uploads a video file to AnonMP4 and reports progress
 // through fn (called with host "AnonMP4" and cumulative bytes).
 func (u *AnonMP4Uploader) UploadWithProgress(filePath string, progress ProgressFunc) (string, error) {
@@ -206,6 +276,20 @@ func (u *AnonMP4Uploader) UploadWithProgress(filePath string, progress ProgressF
 			return link, nil
 		}
 		lastErr = err
+
+		// A 522 is Cloudflare for "the origin never answered in time" — an
+		// upstream outage, not our request.  A single one may be transient
+		// (the loop retries within this file's attempts), but every
+		// observation is a strike; the 3rd strike in a UTC day disables
+		// AnonMP4 fleet-wide until midnight so the other 17 nodes stop
+		// rediscovering the dead origin file after file.
+		if isAnonMP4OriginDown(err) {
+			strikes, disabled := recordAnonMP4OriginDown()
+			if disabled {
+				log.Printf("ERROR [AnonMP4] origin 522 strike %d/%d — disabling AnonMP4 until next UTC midnight (upstream outage, fleet-wide)", strikes, anonmp4522MaxStrikes)
+				return "", err
+			}
+		}
 
 		// Fail fast on dial failures / HTTP 5xx (service unreachable) and on
 		// functional rejections (bad client_token, non-success status) — in

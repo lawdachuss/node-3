@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// imgChestAPIBase is the upload endpoint (a var, vidmolyAPIBase convention, so
+// tests can point it at an httptest server).
+var imgChestAPIBase = "https://api.imgchest.com/v1/post"
+
 // ImgChestUploader handles uploading images to imgchest.com.
 // Requires a personal access token (created from profile > security tab).
 // Supports adult/NSFW content (nsfw flag in API). Permanent hosting.
@@ -126,7 +130,7 @@ func (u *ImgChestUploader) uploadOnce(filePath string) (string, error) {
 	totalLen := int64(preamble.Len()) + fi.Size() + int64(len(closing))
 	body := io.MultiReader(&preamble, file, bytes.NewReader([]byte(closing)))
 
-	req, err := http.NewRequest("POST", "https://api.imgchest.com/v1/post", body)
+	req, err := http.NewRequest("POST", imgChestAPIBase, body)
 	if err != nil {
 		return "", fmt.Errorf("imgchest: create request: %w", err)
 	}
@@ -178,4 +182,24 @@ func (u *ImgChestUploader) uploadOnce(filePath string) (string, error) {
 
 	log.Printf("ImgChest: uploaded %s → %s", filepath.Base(filePath), imageURL)
 	return imageURL, nil
+}
+
+// isImgChestStorageFull reports whether the error is ImgChest's account-level
+// storage quota rejection (captured live across the fleet 2026-10-20):
+//
+//	HTTP 403 {"error":"You've used 42.4 GB of your 10 GB storage"}
+//
+// The matcher is deliberately tight ("storage" together with "of your" or
+// "you've used") so a plain 403 (site block, maintenance) or an auth failure
+// is never mislabeled as a day-long quota hit — the isVoeStorageFull lesson:
+// bare substrings like "storage" alone over-match.  Unrecoverable until an
+// operator frees space, so the caller fleet-disables the host for ~24h
+// instead of letting every node rediscover the quota once per session.
+func isImgChestStorageFull(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "storage") &&
+		(strings.Contains(msg, "of your") || strings.Contains(msg, "you've used"))
 }

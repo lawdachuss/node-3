@@ -13,7 +13,11 @@ import (
 	"time"
 )
 
-const imgbbAPIURL = "https://api.imgbb.com/1/upload"
+const imgbbAPIURLDefault = "https://api.imgbb.com/1/upload"
+
+// imgbbAPIURL is a var (vidmolyAPIBase convention) so tests can point the
+// uploader at an httptest server.
+var imgbbAPIURL = imgbbAPIURLDefault
 
 // imgbbGlobal throttling: ImgBB's free tier rate-limits by IP address, not
 // by API key.  All keys from the same server share one rate-limit bucket.
@@ -36,12 +40,64 @@ var (
 // imgbbMinInterval is the normal minimum spacing between ImgBB API calls.
 // ~50–100 uploads/h per IP → 36–72 s between calls; 12 s gives ~300/h
 // ceiling which stays well under quota during normal (non-backfill) usage.
-const imgbbMinInterval = 12 * time.Second
+// (vars, not consts: tests shrink them to keep the suite fast.)
+var imgbbMinInterval = 12 * time.Second
 
 // imgbbCooldownInterval is the spacing used after a rate-limit error.
 // It is intentionally longer than imgbbMinInterval to let the IP-level
 // bucket recover before resuming normal pacing.
-const imgbbCooldownInterval = 72 * time.Second
+var imgbbCooldownInterval = 72 * time.Second
+
+// imgbbKeyCooldownDuration is how long ONE key stays out of rotation after a
+// rate-limit hit.  The bucket refills on the order of an hour (see
+// imgbbMinInterval), so 24 cooldown intervals (~29 min at the production
+// spacing) keeps a spent key out until the bucket has realistically recovered
+// while still letting it back in the same session.
+var imgbbKeyCooldownDuration = 24 * imgbbCooldownInterval
+
+// imgbbKeyCooldown tracks per-key cooldown expiries.  A rate-limited key is
+// skipped by every uploader until its expiry instead of being re-tried on the
+// next call (the pre-existing global throttle only changed SPACING; the spent
+// key was still selected immediately).  Auth failures do NOT enter this map:
+// a bad key must fail fast and visibly, not be silently skipped.
+var imgbbKeyCooldown = struct {
+	mu     sync.Mutex
+	expiry map[string]time.Time
+}{expiry: make(map[string]time.Time)}
+
+// coolImgBBKey puts a key into per-key cooldown for imgbbKeyCooldownDuration.
+func coolImgBBKey(key string) {
+	if key == "" {
+		return
+	}
+	imgbbKeyCooldown.mu.Lock()
+	defer imgbbKeyCooldown.mu.Unlock()
+	imgbbKeyCooldown.expiry[key] = time.Now().Add(imgbbKeyCooldownDuration)
+}
+
+// imgbbKeyCooled reports whether key is still inside its cooldown window.
+// An expired entry is removed so it can be reused immediately.
+func imgbbKeyCooled(key string) bool {
+	imgbbKeyCooldown.mu.Lock()
+	defer imgbbKeyCooldown.mu.Unlock()
+	exp, ok := imgbbKeyCooldown.expiry[key]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(imgbbKeyCooldown.expiry, key)
+		return false
+	}
+	return true
+}
+
+// clearImgBBKeyCooldownForTest empties the cooldown map (tests share the
+// package-level state).
+func clearImgBBKeyCooldownForTest() {
+	imgbbKeyCooldown.mu.Lock()
+	defer imgbbKeyCooldown.mu.Unlock()
+	imgbbKeyCooldown.expiry = make(map[string]time.Time)
+}
 
 // markImgBBRateLimited records a rate-limit hit so throttleImgBB uses the
 // longer cooldown interval for subsequent calls.
@@ -125,6 +181,27 @@ func (kr *imgbbKeyRing) count() int {
 	return len(kr.keys)
 }
 
+// nextUsable returns the current key when it is not cooling down; otherwise it
+// advances the ring (bounded by the key count) and returns the first usable
+// key.  Returns "" when every key is cooling down (or no keys are set).
+// A cooled key is skipped WITHOUT consuming an upload attempt — the attempt
+// belongs to whichever usable key gets picked.
+func (kr *imgbbKeyRing) nextUsable() string {
+	kr.mu.Lock()
+	defer kr.mu.Unlock()
+	if len(kr.keys) == 0 {
+		return ""
+	}
+	for i := 0; i < len(kr.keys); i++ {
+		k := kr.keys[kr.index]
+		if !imgbbKeyCooled(k) {
+			return k
+		}
+		kr.index = (kr.index + 1) % len(kr.keys)
+	}
+	return ""
+}
+
 // ImgBBUploader handles uploading images to ImgBB with automatic
 // key rotation on rate-limit errors.
 type ImgBBUploader struct {
@@ -139,13 +216,41 @@ func NewImgBBUploader() *ImgBBUploader {
 	}
 }
 
-// isRateLimitError returns true if the response indicates a rate-limit hit
-// (HTTP 429 or "rate limit" in the error message).
-func isRateLimitError(statusCode int, body []byte) bool {
-	if statusCode == 429 {
-		return true
+// imgbbErrClass classifies an ImgBB API failure by body/status so the caller
+// can decide between per-key cooldown (rate limit), rotation (auth) and a
+// plain fail-fast (anything else — usually a bad request that every key
+// rejects identically).
+type imgbbErrClass int
+
+const (
+	classOther imgbbErrClass = iota
+	classRateLimited
+	classAuthFailed
+)
+
+// classifyImgBBError matches the observed ImgBB failure shapes:
+//   - rate limit: HTTP 429, or HTTP 400 with body "Rate limit reached." (code 100)
+//   - auth:       HTTP 403, or a body naming an invalid/unauthorized/suspended key
+//   - other:      everything else (invalid image, file too large, …) — identical
+//     for every key, so rotating wastes the attempt budget
+func classifyImgBBError(statusCode int, body string) imgbbErrClass {
+	lower := strings.ToLower(body)
+	if statusCode == 429 || strings.Contains(lower, "rate limit") {
+		return classRateLimited
 	}
-	return strings.Contains(strings.ToLower(string(body)), "rate limit")
+	if statusCode == 403 ||
+		strings.Contains(lower, "invalid") ||
+		strings.Contains(lower, "unauthorized") ||
+		strings.Contains(lower, "suspended") {
+		return classAuthFailed
+	}
+	return classOther
+}
+
+// isRateLimitError returns true if the response indicates a rate-limit hit
+// (HTTP 429 or the 400 "Rate limit reached." body).
+func isRateLimitError(statusCode int, body []byte) bool {
+	return classifyImgBBError(statusCode, string(body)) == classRateLimited
 }
 
 // Upload uploads an image file to ImgBB.  On rate-limit errors the key ring
@@ -170,7 +275,16 @@ func (u *ImgBBUploader) Upload(filePath string) (string, error) {
 		// Space API calls process-wide so a burst can't exhaust every key
 		// in a single tick (see throttleImgBB).
 		throttleImgBB()
-		key := u.keys.current()
+		// Skip keys still inside their post-rate-limit cooldown; the attempt
+		// is re-pointed at the next usable key instead of being burned on a
+		// key whose bucket is still empty.
+		key := u.keys.nextUsable()
+		if key == "" {
+			if lastErr != nil {
+				return "", lastErr
+			}
+			return "", fmt.Errorf("imgbb: all %d API keys are cooling down after rate limits", u.keys.count())
+		}
 		form := url.Values{
 			"key":   {key},
 			"image": {encoded},
@@ -195,21 +309,31 @@ func (u *ImgBBUploader) Upload(filePath string) (string, error) {
 		if resp.StatusCode == 429 {
 			lastErr = fmt.Errorf("imgbb: rate limited (HTTP 429)")
 			markImgBBRateLimited()
+			coolImgBBKey(key)
 			u.keys.rotate()
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("imgbb: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-			// Rotate on rate-limit messages (429 or body text) or 403
-			// (key-specific "Forbidden" / "Invalid API key").  Do NOT
-			// rotate on generic 400 — that's usually a bad request
-			// (invalid image format, file too large) which fails for
-			// every key and rotating would waste attempts.
-			if isRateLimitError(resp.StatusCode, body) || resp.StatusCode == 403 {
+			// Rotate on rate-limit responses (429 or the 400 "Rate limit
+			// reached." body) or 403 (key-specific "Forbidden").  A
+			// rate-limited key also enters per-key cooldown so the NEXT
+			// call starts on a usable key instead of re-paying the failure.
+			// Do NOT rotate on a generic 400 — that's usually a bad request
+			// (invalid image format, file too large) which fails for every
+			// key and rotating would waste attempts.
+			switch classifyImgBBError(resp.StatusCode, string(body)) {
+			case classRateLimited:
 				markImgBBRateLimited()
+				coolImgBBKey(key)
 				u.keys.rotate()
 				continue
+			case classAuthFailed:
+				if resp.StatusCode == 403 {
+					u.keys.rotate()
+					continue
+				}
 			}
 			return "", lastErr
 		}
@@ -236,6 +360,7 @@ func (u *ImgBBUploader) Upload(filePath string) (string, error) {
 			lastErr = err
 			if isRateLimitError(result.Status, []byte(msg)) {
 				markImgBBRateLimited()
+				coolImgBBKey(key)
 				u.keys.rotate()
 				continue
 			}
