@@ -571,9 +571,28 @@ func (c *Client) DeleteDiskUsageBefore(cutoff time.Time) (int, error) {
 //
 // MUST only ever be called on log/telemetry tables (channel_logs, disk_usage).
 // Metadata tables are deliberately never reachable from here.
+//
+// The delete batch is capped at 100 ids (not the 500-row page): 500 UUIDs in
+// an id=in.(...) filter is ~18 KB of query string, over the ~8 KB proxy URI
+// limit, so every batch answered HTTP 414 and retention silently pruned zero
+// rows (fleet sweep 2026-10-20; same limit documented on DeleteChannelsNotIn).
+// 100 UUIDs ≈ 3.7 KB — comfortably under the limit.
 func (c *Client) deleteRowsOlderThan(table, timeField string, cutoff time.Time) (int, error) {
 	const pageSize = 500
+	const deleteBatch = 100
 	total := 0
+	var pending []string
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := c.delete(fmt.Sprintf("/%s?id=in.(%s)", table, strings.Join(pending, ","))); err != nil {
+			return fmt.Errorf("delete old %s batch (%d): %w", table, len(pending), err)
+		}
+		total += len(pending)
+		pending = pending[:0]
+		return nil
+	}
 	for {
 		var ids []struct {
 			ID string `json:"id"`
@@ -587,14 +606,20 @@ func (c *Client) deleteRowsOlderThan(table, timeField string, cutoff time.Time) 
 		if len(ids) == 0 {
 			return total, nil
 		}
-		idList := make([]string, 0, len(ids))
 		for _, r := range ids {
-			idList = append(idList, r.ID)
+			pending = append(pending, r.ID)
+			if len(pending) >= deleteBatch {
+				if err := flush(); err != nil {
+					return total, err
+				}
+			}
 		}
-		if err := c.delete(fmt.Sprintf("/%s?id=in.(%s)", table, strings.Join(idList, ","))); err != nil {
-			return total, fmt.Errorf("delete old %s batch (%d): %w", table, len(idList), err)
+		// Drain the page remainder BEFORE re-paging: an id not yet deleted is
+		// still the oldest row and would be returned (and counted) again by
+		// the next `order=<timeField>.asc` page.
+		if err := flush(); err != nil {
+			return total, err
 		}
-		total += len(idList)
 	}
 }
 
