@@ -64,6 +64,15 @@ type Manager struct {
 	// Coordinator for distributed shards/nodes mode (nil in isolated mode).
 	Coordinator *coordinator.Coordinator
 
+	// ReleaseHook, when set, is called by ReapStuckRecordings for every channel
+	// whose DEAD run was just cleared (monitor gone, 0-byte file removed).  In
+	// pooled mode main.go wires it to the coordinator's release path so the
+	// channel_assignments row stops saying status='recording' immediately —
+	// ReclaimChannels skips 'recording' rows, so without this the freed wedge
+	// keeps burning a slot until the node restarts (2026-10-17 sweep: 12/11/8
+	// ghost slots on node-4/8/16).  Nil is valid and a no-op (isolated mode).
+	ReleaseHook func(username string)
+
 	// watcherDone is closed during graceful shutdown so the fsnotify
 	// watcher can release its file handles promptly.
 	WatcherDone chan struct{}

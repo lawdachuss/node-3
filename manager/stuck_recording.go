@@ -66,14 +66,28 @@ func startStuckRecordingWatchdog(m *Manager) {
 	}()
 }
 
-// ReapStuckRecordings restarts every channel whose current recording file has
-// been zero bytes for longer than stuckRecordingGrace, clearing the empty file
-// on the way out.  Returns the number of recordings reaped.
+// ReapStuckRecordings clears every wedged zero-byte recording whose file has
+// been empty for longer than stuckRecordingGrace, by generation:
+//
+//   - monitor ALIVE  → restart the run (ReapStuckRecording); the monitor's
+//     deferred cleanup then closes and DELETES the empty file.
+//   - monitor DEAD   → the dead-run pass.  The run's own teardown lost the race
+//     (a session cut or CF-block between the monitor's exit and its deferred
+//     cleanup), so nothing will ever close the open handle: cleanupLocked only
+//     runs when the channel closes the file, and the orphan sweep skips the
+//     file because it is still the channel's current path.  Nothing else in the
+//     node owns it, so the sweep closes the handle and deletes the file via the
+//     channel's own Cleanup — WITHOUT restarting the channel.
+//
+// Returns the number of runs restarted.  Dead-run removals are deliberately NOT
+// counted: a removal is not a restart, and inflating the count would claim work
+// the sweep did not perform.
 //
 // Exported so the watchdog and an operator rescue action can share one path.
 func (m *Manager) ReapStuckRecordings() int {
 	now := time.Now()
 	reaped := 0
+	removed := 0
 	m.Channels.Range(func(_, value any) bool {
 		ch, ok := value.(*channel.Channel)
 		if !ok {
@@ -98,15 +112,39 @@ func (m *Manager) ReapStuckRecordings() int {
 		last, seen := stuckRecordingLast[username]
 		stuckRecordingMu.Unlock()
 		if !reapCooldownElapsed(last, now, seen) {
-			return true // reaped recently; let the normal retry cadence handle it
+			return true // handled recently; let the normal retry cadence handle it
+		}
+		markHandled := func() {
+			stuckRecordingMu.Lock()
+			stuckRecordingLast[username] = now
+			stuckRecordingMu.Unlock()
 		}
 
 		if !ch.ReapStuckRecording("stuck recording reaped: stream never started (no data written)") {
-			return true // monitor already gone
+			// Dead run: close the stale handle and clear the empty file, never
+			// restart.  A failed removal (locked handle) retries on the next
+			// sweep; the cooldown note keeps any concurrent creator out of the
+			// same window.
+			ch.Warn("removing dead-run recording: %s held a 0-byte file for %s with its monitor gone — clearing it, not restarting",
+				filepath.Base(path), age.Round(time.Second))
+			if err := ch.Cleanup(channel.CloseQueue); err != nil {
+				ch.Warn("dead-run cleanup of %s failed (retried next sweep): %v", filepath.Base(path), err)
+				return true
+			}
+			markHandled()
+			removed++
+			// The run is gone: tell the coordinator so its assignment row stops
+			// saying status='recording' (reclaim can't touch 'recording' rows).
+			// Fired AFTER the file is actually cleared — a release for a run the
+			// sweep failed to clear would make the slot look free while the
+			// node still holds the file. Synchronous: the seam is deterministic
+			// for tests, and asyncness belongs to the wiring in main.go.
+			if m.ReleaseHook != nil {
+				m.ReleaseHook(username)
+			}
+			return true
 		}
-		stuckRecordingMu.Lock()
-		stuckRecordingLast[username] = now
-		stuckRecordingMu.Unlock()
+		markHandled()
 		reaped++
 		ch.Warn("reaping stuck recording: %s held a 0-byte file for %s with no stream data — restarting to clear it",
 			filepath.Base(path), age.Round(time.Second))
@@ -115,6 +153,9 @@ func (m *Manager) ReapStuckRecordings() int {
 
 	if reaped > 0 {
 		log.Printf("[stuck-recording] reaped %d wedged recording(s) holding a zero-byte file for > %s", reaped, stuckRecordingGrace)
+	}
+	if removed > 0 {
+		log.Printf("[stuck-recording] removed %d dead-run 0-byte file(s) whose monitor had already exited", removed)
 	}
 	return reaped
 }
