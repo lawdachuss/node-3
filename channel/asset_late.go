@@ -132,7 +132,12 @@ func trackLateAsset(assetName, baseName string, done <-chan string, abandonedAft
 		info("%s: ✓ %s landed late after %s (collect stopped waiting at %s — not a failure)",
 			assetName, baseName, elapsed, abandonedAfter)
 	case <-timer.C:
-		warn("%s: %s still has no URL %s after being abandoned (background upload may still complete later)",
+		// Nothing else will ever report this asset — its goroutine never
+		// finished, so its own failure line was never written and the collect
+		// already moved on. lateAssetTrackBound outlasts every internal asset
+		// budget, so reaching here means stuck, not slow. Warn would bury the
+		// only signal this asset ever gets.
+		errFn("%s: %s treating as missing — still no URL %s after being abandoned and its goroutine never finished",
 			assetName, baseName, lateAssetTrackBound)
 	}
 }
