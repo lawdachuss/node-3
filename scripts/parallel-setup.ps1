@@ -143,6 +143,29 @@ $buildJob = Start-Job -Name build -ScriptBlock {
       }
       if (-not $ok) { throw "(BUILD) $name failed after 4 attempts" }
     }
+
+    # [GATE] pre-session test gate (plan E1): a session must never start on
+    # broken code — a red gate aborts before keep-alive, so watchman re-mints
+    # a fresh session with the next cycle. Bounded (vet + ./channel only,
+    # well inside the 900s build budget; the full suite runs in CI, not here).
+    Write-Host "(GATE) Running go vet ./... + go test ./channel..."
+    $gateOut = @()
+    $gateOut += & $goPath vet ./... 2>&1
+    $gateExit = $LASTEXITCODE
+    if ($gateExit -eq 0) {
+      $gateOut += & $goPath test ./channel -count=1 2>&1
+      $gateExit = $LASTEXITCODE
+    }
+    if ($gateExit -ne 0) {
+      $gateOut | Set-Content -Path "$d\gate-failure.log" -Encoding UTF8
+      Write-Host "[GATE] test suite failed - session aborted (full output in gate-failure.log)"
+      # Remove the exe so the main wait-block sees a Failed job with no binary
+      # and exits 1 — the Failed-state check only fires when the exe is absent.
+      Remove-Item "$d\chaturbate-dvr.exe" -Force -ErrorAction SilentlyContinue
+      throw "(GATE) pre-session test gate failed (exit $gateExit)"
+    }
+    Write-Host "(GATE) vet + channel tests OK"
+
     if ($sa) { $env:ALL_PROXY = $sa; $env:all_proxy = $sa }
   } else { Write-Host "(BUILD) Using cached binaries" }
 } -ArgumentList $repoDir

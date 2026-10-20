@@ -245,3 +245,17 @@ jobs:
           Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           Remove-Item "$env:REPO_DIR\tunnel-url.txt" -Force -ErrorAction SilentlyContinue
           Write-Host "[CLEANUP] Done"
+
+      # Plan E2 (the node-4 logless-death fix): a job that dies must leave its
+      # DVR logs behind. Placed AFTER Cleanup on Cancel so the dvr process is
+      # already dead and both logs are flushed/closed before upload.
+      - name: Upload DVR log
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: dvr-log
+          path: |
+            ${{ env.REPO_DIR }}\dvr-output.log
+            ${{ env.REPO_DIR }}\dvr-err.log
+          if-no-files-found: ignore
