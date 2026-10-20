@@ -854,7 +854,7 @@
         </summary>
         <div class="section-body">
             <div class="uk-toolbar">
-                <span class="uk-note">Keys are stored centrally in Supabase — adding or removing one here reaches every node (applied within ~20 min, no restart). Statuses refresh live: each key is auto-checked about every 2h, and a key is flagged the moment an upload rotates away from it.</span>
+                <span class="uk-note">Keys are stored centrally in Supabase — adding a key here REPLACES that host's previous keys on every node (applied within ~20 min, no restart), and a key the host rejects (<strong>dead</strong>) is deleted automatically within the same window. Statuses refresh live: each key is auto-checked about every 2h, and a key is flagged the moment an upload rotates away from it.</span>
                 <button type="button" class="btn-action" data-act="probe-all">Check all now</button>
             </div>
             <div id="uk-hosts">
@@ -893,12 +893,12 @@
                     </table>
                     <div class="uk-add">
                         {{ range .Fields }}{{ if eq . "key" }}<input type="password" data-field="key" class="uk-input" placeholder="API key" />{{ end }}{{ if eq . "login" }}<input type="text" data-field="login" class="uk-input" placeholder="Login" />{{ end }}{{ if eq . "email" }}<input type="text" data-field="email" class="uk-input" placeholder="Email" />{{ end }}{{ if eq . "token" }}<input type="password" data-field="token" class="uk-input" placeholder="Token" />{{ end }}{{ end }}
-                        <button type="button" class="btn-action" data-act="add">＋ Add</button>
+                        <button type="button" class="btn-action" data-act="add" title="Replaces this host's current keys on every node">＋ Add</button>
                     </div>
                 </div>
                 {{ end }}
             </div>
-            <div class="uk-note"><strong>dead</strong> = the host explicitly rejected the key (replace it). <strong>quota</strong> = valid key, account capped for now (recovers on its own). <strong>unknown</strong> = the check could not reach a verdict (host down / block page) — the key was NOT written off.</div>
+            <div class="uk-note"><strong>dead</strong> = the host explicitly rejected the key — it is removed from the whole fleet automatically within ~20 min of the verdict (add a replacement key and the old ones are swapped out in one step). <strong>quota</strong> = valid key, account capped for now (recovers on its own, never auto-deleted). <strong>unknown</strong> = the check could not reach a verdict (host down / block page) — the key was NOT written off.</div>
         </div>
     </details>
 

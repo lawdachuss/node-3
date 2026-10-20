@@ -512,30 +512,101 @@ func Snapshot() []HostView {
 	return views
 }
 
-// Add appends one credential to a host's central list, applies it, and kicks
-// off an immediate probe so its status appears without waiting for the sweep.
-func Add(host string, cred Cred) error {
+// Verdict is one credential's immediate upload-check result, returned in the
+// save response so the caller can show it next to the form that saved the key.
+// Add and SyncLegacyForm both go through commit, so a saved credential is
+// never reported without its real round-trip outcome.
+type Verdict struct {
+	Host    string `json:"host"`
+	Label   string `json:"label"`
+	Display string `json:"display"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+// change is one host mutation awaiting commit: the credentials that are new or
+// were just edited (they get verified) and the status rows of the credentials
+// they replaced (they are dropped so a rotated key cannot inherit a verdict).
+type change struct {
+	host  hostSpec
+	fresh []Cred
+	stale []string
+}
+
+// commit is the single owner of "save → probe → report" for credential edits.
+// It persists the already-mutated set, applies it fleet-wide, drops the status
+// rows of replaced credentials and runs a real upload round-trip on every new
+// one IN THE SAME REQUEST, returning the verdicts for the save response. The
+// add API and the Settings form both end here, so the two paths cannot drift
+// apart on whether (or when) a saved key is verified.
+func commit(s *Set, changes []change) ([]Verdict, error) {
+	if err := Save(s); err != nil {
+		return nil, fmt.Errorf("save central keys: %w", err)
+	}
+	mu.Lock()
+	current = s
+	dropped := false
+	for _, ch := range changes {
+		for _, k := range ch.stale {
+			delete(statuses, k)
+			dropped = true
+		}
+	}
+	mu.Unlock()
+	applyToConfig(s)
+	if dropped {
+		persistStatusesAsync()
+	}
+	var verdicts []Verdict
+	for _, ch := range changes {
+		for _, c := range ch.fresh {
+			ks := probeOne(ch.host, c)
+			verdicts = append(verdicts, Verdict{
+				Host:    ch.host.name,
+				Label:   ch.host.label,
+				Display: display(secretOf(ch.host, c)),
+				Status:  ks.Status,
+				Message: ks.Message,
+			})
+		}
+	}
+	return verdicts, nil
+}
+
+// Add sets a host's central credential list to the given credential — the new
+// key REPLACES whatever that host had, it does not append. The admin page's
+// "＋ Add" is how an operator rotates a key (they add a new one precisely
+// because the old one stopped working), so keeping the old key in the ring
+// would leave every upload starting on a credential the host already refused.
+// The status rows of the replaced keys are dropped (a rotated key can never
+// inherit a verdict — including the new credential's own stale row, which is
+// re-probed right after), the set is applied fleet-wide, and the new
+// credential is verified with a real upload round-trip in this request, so
+// the save response already carries its verdict instead of an "untested" row.
+// A credential that IS the host's only key stays a duplicate error: re-adding
+// it changes nothing.
+func Add(host string, cred Cred) (Verdict, error) {
 	h, ok := specByName(host)
 	if !ok {
-		return fmt.Errorf("unknown upload host %q", host)
+		return Verdict{}, fmt.Errorf("unknown upload host %q", host)
 	}
 	for _, f := range h.fields {
 		switch f {
 		case "key":
 			if strings.TrimSpace(cred.Key) == "" {
-				return fmt.Errorf("%s: key is required", h.label)
+				return Verdict{}, fmt.Errorf("%s: key is required", h.label)
 			}
 		case "login":
 			if strings.TrimSpace(cred.Login) == "" {
-				return fmt.Errorf("%s: login is required", h.label)
+				return Verdict{}, fmt.Errorf("%s: login is required", h.label)
 			}
 		case "email":
 			if strings.TrimSpace(cred.Email) == "" {
-				return fmt.Errorf("%s: email is required", h.label)
+				return Verdict{}, fmt.Errorf("%s: email is required", h.label)
 			}
 		case "token":
 			if strings.TrimSpace(cred.Token) == "" {
-				return fmt.Errorf("%s: token is required", h.label)
+				return Verdict{}, fmt.Errorf("%s: token is required", h.label)
 			}
 		}
 	}
@@ -545,34 +616,41 @@ func Add(host string, cred Cred) error {
 
 	s, err := Load()
 	if err != nil {
-		return fmt.Errorf("load central keys: %w", err)
+		return Verdict{}, fmt.Errorf("load central keys: %w", err)
 	}
-	creds := h.get(s)
+	old := h.get(s)
 	fp := Fingerprint(secretOf(h, cred))
-	for _, c := range creds {
-		if Fingerprint(secretOf(h, c)) == fp {
-			return fmt.Errorf("%s: this credential is already added", h.label)
+	if len(old) == 1 && Fingerprint(secretOf(h, old[0])) == fp {
+		return Verdict{}, fmt.Errorf("%s: this credential is already added", h.label)
+	}
+	// Collect the status rows of everything this add replaces — including the
+	// new credential's own row when it already existed further down a pool:
+	// that verdict predates the rotation and must be re-earned by the probe
+	// below, never carried over (an ancient "dead" must not shadow a key the
+	// operator just deliberately re-added).
+	stale := make([]string, 0, len(old))
+	seen := map[string]bool{}
+	replaced := 0
+	for _, c := range old {
+		ofp := Fingerprint(secretOf(h, c))
+		if !seen[ofp] {
+			seen[ofp] = true
+			stale = append(stale, statusKeyOf(h.name, ofp))
+		}
+		if ofp != fp {
+			replaced++
 		}
 	}
-	h.set(s, append(creds, cred))
-	if err := Save(s); err != nil {
-		return fmt.Errorf("save central keys: %w", err)
+	h.set(s, []Cred{cred})
+	verdicts, err := commit(s, []change{{host: h, fresh: []Cred{cred}, stale: stale}})
+	if err != nil {
+		return Verdict{}, err
 	}
-	mu.Lock()
-	current = s
-	mu.Unlock()
-	applyToConfig(s)
-
-	// Probe the new key right away so a typo or dead key is visible in
-	// seconds instead of at the next sweep.
-	spawnProbe(h, cred)
-	return nil
-}
-
-// spawnProbe runs an immediate post-add probe in the background. A var so
-// tests can stub out the network call.
-var spawnProbe = func(h hostSpec, c Cred) {
-	go probeOne(h, c)
+	if replaced > 0 {
+		fmt.Printf("[uploadkeys] %s: added %s — replaced %d old key(s) fleet-wide\n",
+			h.label, display(secretOf(h, cred)), replaced)
+	}
+	return verdicts[0], nil
 }
 
 // Remove drops the credential with the given fingerprint from a host's
@@ -615,20 +693,56 @@ func Remove(host, fingerprint string) error {
 // SyncLegacyForm folds the legacy Settings-dialog credential fields into the
 // central store, so rotating a key the old way is never silently overwritten
 // by the central set. Comma-separated lists become multiple credentials.
-// Empty values are ignored (the form always submits every field).
-func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, vidMolyKey string) {
+// Empty values are ignored (the form always submits every field). Newly
+// added/edited credentials are verified inside this call (real upload
+// round-trip) and their verdicts returned for the save response; the status
+// rows of replaced credentials are dropped, so a rotation can never inherit
+// the previous key's verdict.
+func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, vidMolyKey string) []Verdict {
 	if strings.TrimSpace(voeSXKey+stLogin+stKey+mdEmail+mdToken+vidaraKey+vidMolyKey) == "" {
-		return
+		return nil
 	}
 	s, err := Load()
 	if err != nil {
 		fmt.Printf("[uploadkeys] sync legacy form: load: %v\n", err)
-		return
+		return nil
 	}
+	// Collect what the edit changed: credentials that are new to their host get
+	// verified before the save returns (an edited key must never sit
+	// "untested" until the next sweep), and status rows of replaced keys are
+	// dropped so a rotated key can never inherit the old key's verdict.
+	var changes []change
 	replace := func(h hostSpec, creds []Cred) {
-		if len(creds) > 0 {
-			h.set(s, creds)
+		if len(creds) == 0 {
+			return
 		}
+		old := h.get(s)
+		ch := change{host: h}
+		keep := make(map[string]bool, len(creds))
+		for _, c := range creds {
+			keep[Fingerprint(secretOf(h, c))] = true
+		}
+		for _, c := range old {
+			fp := Fingerprint(secretOf(h, c))
+			if !keep[fp] {
+				ch.stale = append(ch.stale, statusKeyOf(h.name, fp))
+			}
+		}
+		for _, c := range creds {
+			fp := Fingerprint(secretOf(h, c))
+			seen := false
+			for _, oc := range old {
+				if Fingerprint(secretOf(h, oc)) == fp {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				ch.fresh = append(ch.fresh, c)
+			}
+		}
+		h.set(s, creds)
+		changes = append(changes, ch)
 	}
 	credsFromCSV := func(v string) []Cred {
 		var out []Cred
@@ -681,12 +795,10 @@ func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, vidMo
 			}
 		}
 	}
-	if err := Save(s); err != nil {
-		fmt.Printf("[uploadkeys] sync legacy form: save: %v\n", err)
-		return
+	verdicts, err := commit(s, changes)
+	if err != nil {
+		fmt.Printf("[uploadkeys] sync legacy form: %v\n", err)
+		return nil
 	}
-	mu.Lock()
-	current = s
-	mu.Unlock()
-	applyToConfig(s)
+	return verdicts
 }

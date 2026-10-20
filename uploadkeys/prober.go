@@ -15,9 +15,11 @@ import (
 
 const (
 	// probeInterval is how old a key's status may get before the sweep
-	// re-probes it. VidMoly probes count against its ~50 API calls/day cap, so
-	// this must stay comfortably above hourly — and the fleet-wide lease below
-	// ensures only ONE node probes per interval, not all 18.
+	// re-probes it.  Probes are genuine upload round-trips (one tiny ~2 KB
+	// file, deleted again right after), and VidMoly probes count against its
+	// ~50 API calls/day cap, so this must stay comfortably above hourly — and
+	// the fleet-wide lease below ensures only ONE node probes per interval,
+	// not all 18.
 	probeInterval = 2 * time.Hour
 	// refreshInterval is how often each node re-reads the central key set and
 	// statuses, which is also how fast an edit made on one node's admin page
@@ -49,8 +51,9 @@ func Start() {
 
 	ensureLoaded()
 	seedFromConfig()
+	applyLoaded()
 	uploader.SetKeyDeathHook(onKeyDeath)
-	fmt.Println("[uploadkeys] central upload-key store active (prober running, statuses on /admin)")
+	fmt.Println("[uploadkeys] central upload-key store active (prober + dead-key reaper running, statuses on /admin)")
 
 	go func() {
 		// Stagger the first sweep so a fleet-wide restart doesn't probe in one
@@ -59,9 +62,114 @@ func Start() {
 		for {
 			refresh()
 			probeStale()
+			// Reap behind the same fleet-wide lease the probing uses, and
+			// strictly AFTER it: a dead verdict must have survived a fresh
+			// re-probe in this very cycle before it deletes anything (a host
+			// that recovered must not lose its keys to a stale verdict).
+			if claimProbeLease() {
+				reapDead()
+			}
 			time.Sleep(refreshInterval)
 		}
 	}()
+}
+
+// applyLoaded overlays the central credential set already sitting in memory
+// (loaded by ensureLoaded, or just seeded from env) onto this node's config
+// and environment — the boot half of the central store's authority. refresh()
+// only applies when it DETECTS a change after boot, so without this a node
+// that boots AFTER an operator edit loads the edited set as its baseline,
+// sees "no change" on every refresh, and spends its whole (6h) session
+// uploading with the stale env-derived keys it started with — the edit would
+// reach only the nodes that happened to be running when it was made. A
+// Managed set is applied even when every list in it is empty, so a boot can
+// never resurrect keys the operator deliberately deleted either.
+func applyLoaded() {
+	mu.RLock()
+	s := cloneSet(current)
+	mu.RUnlock()
+	if s == nil || (!s.Managed && !s.nonEmpty()) {
+		return
+	}
+	applyToConfig(s)
+	fmt.Printf("[uploadkeys] central key store applied at boot (%d host(s))\n", countHosts(s))
+}
+
+// reapDead drops credentials whose status is a decisive "dead" verdict from
+// the central store — the automatic half of dead-key management (the ✕ button
+// on the admin page is the manual half). Only StatusDead counts: "quota" is a
+// valid key its account capped, "unknown" is a probe that could not decide,
+// and neither may ever delete a credential. Every verdict that reaches this
+// function is the host's own explicit rejection — probeOne's Rejected path
+// already filters WAF/rate-limit block pages to undecided, and the upload
+// hook re-classifies quota/limit rotations — so keeping the key would only
+// burn upload attempts on a credential the host already refused. Called from
+// the prober loop right after probeStale (behind the probe lease), so a dead
+// verdict has been re-probed in the same cycle before anything is deleted.
+// Removal is idempotent: a fingerprint already gone (another node reaped it
+// concurrently) is simply skipped.
+func reapDead() int {
+	ensureLoaded()
+	mu.RLock()
+	s := cloneSet(current)
+	if s == nil {
+		mu.RUnlock()
+		return 0
+	}
+	type hit struct {
+		h  hostSpec
+		c  Cred
+		ks KeyStatus
+	}
+	var dead []hit
+	seen := map[string]bool{}
+	for _, h := range hostSpecs {
+		for _, c := range h.get(s) {
+			fp := Fingerprint(secretOf(h, c))
+			key := statusKeyOf(h.name, fp)
+			if seen[key] {
+				continue
+			}
+			if ks, ok := statuses[key]; ok && ks.Status == StatusDead {
+				seen[key] = true
+				dead = append(dead, hit{h: h, c: c, ks: ks})
+			}
+		}
+	}
+	mu.RUnlock()
+	if len(dead) == 0 {
+		return 0
+	}
+
+	for _, d := range dead {
+		fp := Fingerprint(secretOf(d.h, d.c))
+		old := d.h.get(s)
+		kept := make([]Cred, 0, len(old))
+		for _, c := range old {
+			if Fingerprint(secretOf(d.h, c)) == fp {
+				continue
+			}
+			kept = append(kept, c)
+		}
+		d.h.set(s, kept)
+	}
+	if err := Save(s); err != nil {
+		fmt.Printf("[uploadkeys] auto-remove dead keys: save: %v\n", err)
+		return 0
+	}
+	mu.Lock()
+	current = s
+	for _, d := range dead {
+		delete(statuses, statusKeyOf(d.h.name, Fingerprint(secretOf(d.h, d.c))))
+	}
+	mu.Unlock()
+	applyToConfig(s)
+	persistStatusesAsync()
+	for _, d := range dead {
+		fmt.Printf("[uploadkeys] auto-removed dead %s key %s: %s\n",
+			d.h.label, display(secretOf(d.h, d.c)), d.ks.Message)
+	}
+	return len(dead)
 }
 
 // seedFromConfig writes this node's env-derived credentials into the central
@@ -159,7 +267,9 @@ func refresh() {
 
 // probeStale probes every configured credential whose status is missing or
 // older than probeInterval, behind a fleet-wide lease so VidMoly's daily API
-// cap is not burned by every node probing independently.
+// cap is not burned by every node probing independently. Each probe is a real
+// (tiny) upload round-trip, so the recorded verdict reflects what uploads will
+// actually do on every node.
 func probeStale() {
 	ensureLoaded()
 	mu.RLock()
@@ -219,18 +329,23 @@ func claimProbeLease() bool {
 	return true
 }
 
-// probeFuncs maps each probeable host to its credential check. A var so tests
-// can stub the network without an HTTP server per case.
+// probeFuncs maps each probeable host to its credential check.  Every entry is
+// a genuine upload round-trip (a tiny embedded clip is POSTed to the host's
+// real upload endpoint and deleted again), so a "healthy" verdict means the
+// credential can actually accept a file — not merely answer an account GET.
+// A var so tests can stub the network without an HTTP server per case.
 var probeFuncs = map[string]func(Cred) uploader.ProbeResult{
-	"VoeSX":      func(c Cred) uploader.ProbeResult { return uploader.ProbeVoeSX(c.Key) },
-	"Streamtape": func(c Cred) uploader.ProbeResult { return uploader.ProbeStreamtape(c.Login, c.Key) },
-	"Vidara":     func(c Cred) uploader.ProbeResult { return uploader.ProbeVidara(c.Key) },
-	"VidMoly":    func(c Cred) uploader.ProbeResult { return uploader.ProbeVidMoly(c.Key) },
+	"VoeSX":      func(c Cred) uploader.ProbeResult { return uploader.VerifyVoeSX(c.Key) },
+	"Streamtape": func(c Cred) uploader.ProbeResult { return uploader.VerifyStreamtape(c.Login, c.Key) },
+	"Vidara":     func(c Cred) uploader.ProbeResult { return uploader.VerifyVidara(c.Key) },
+	"VidMoly":    func(c Cred) uploader.ProbeResult { return uploader.VerifyVidMoly(c.Key) },
 }
 
 // probeOne checks a single credential against its host API and records the
-// result. Transport-level ambiguity (host down, WAF page, timeout) is recorded
-// as "unknown" — a flaky network must never mark a good key dead — and an
+// result.  The checks are genuine upload round-trips: OK (healthy) is only
+// awarded after the host accepted and acknowledged a tiny test file.  A
+// transport-level ambiguity (host down, WAF page, timeout) is recorded as
+// "unknown" — a flaky network must never mark a good key dead — and an
 // undecided probe never erases a decisive verdict recorded earlier: a network
 // blip must not flip a known-dead key back to merely unknown; the next
 // decisive probe (healthy or rejected) will overwrite it either way.
@@ -260,6 +375,11 @@ func probeOne(h hostSpec, c Cred) KeyStatus {
 	switch {
 	case res.OK:
 		ks.Status = StatusHealthy
+	case res.Quota:
+		// Valid credential, account cannot upload right now (storage full /
+		// daily cap).  Distinct from both healthy and dead, so a capped key is
+		// never shown green while every real upload fails.
+		ks.Status = StatusQuota
 	case res.Rejected:
 		ks.Status = StatusDead
 	default:
@@ -281,7 +401,8 @@ func probeOne(h hostSpec, c Cred) KeyStatus {
 	return ks
 }
 
-// ProbeNow probes one credential immediately (admin "Test" button) and
+// ProbeNow probes one credential immediately (admin "Test" button) — a real
+// upload round-trip, so the button verifies what it claims to verify — and
 // returns the fresh status.
 func ProbeNow(host, fingerprint string) (KeyStatus, error) {
 	h, ok := specByName(host)

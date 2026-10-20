@@ -20,7 +20,7 @@ func stubStore(t *testing.T) map[string]*[]byte {
 	blobs := map[string]*[]byte{}
 	oldLoad, oldSave := loadBlob, saveBlob
 	oldDelay := persistDelay
-	oldProbe := spawnProbe
+	oldProbes := probeFuncs
 
 	loadBlob = func(key string) []byte {
 		if v, ok := blobs[key]; ok {
@@ -35,7 +35,13 @@ func stubStore(t *testing.T) map[string]*[]byte {
 	}
 	persistDelay = time.Hour // keep async writes from landing mid-suite
 	persistScheduled.Store(false)
-	spawnProbe = func(hostSpec, Cred) {}
+	// Every save now verifies its credential in-request; stub the round-trips
+	// so the suite never touches a real host (cases that need a specific
+	// verdict override the host entry).
+	probeFuncs = map[string]func(Cred) uploader.ProbeResult{}
+	for host := range oldProbes {
+		probeFuncs[host] = func(Cred) uploader.ProbeResult { return uploader.ProbeResult{OK: true} }
+	}
 
 	mu.Lock()
 	current, statuses, started = nil, nil, false
@@ -44,7 +50,7 @@ func stubStore(t *testing.T) map[string]*[]byte {
 
 	t.Cleanup(func() {
 		loadBlob, saveBlob = oldLoad, oldSave
-		persistDelay, spawnProbe = oldDelay, oldProbe
+		persistDelay, probeFuncs = oldDelay, oldProbes
 		persistScheduled.Store(false)
 		mu.Lock()
 		current, statuses, started = nil, nil, false
@@ -100,7 +106,7 @@ func TestAddRemoveRoundtrip(t *testing.T) {
 	blobs := stubStore(t)
 	stubConfig(t)
 
-	if err := Add("VoeSX", Cred{Key: "voe-key-1"}); err != nil {
+	if _, err := Add("VoeSX", Cred{Key: "voe-key-1"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	s := storedSet(t, blobs)
@@ -108,7 +114,7 @@ func TestAddRemoveRoundtrip(t *testing.T) {
 		t.Fatalf("stored voesx = %+v", s.VoeSX)
 	}
 
-	if err := Add("Streamtape", Cred{Login: "user", Key: "st-key"}); err != nil {
+	if _, err := Add("Streamtape", Cred{Login: "user", Key: "st-key"}); err != nil {
 		t.Fatalf("Add streamtape: %v", err)
 	}
 	s = storedSet(t, blobs)
@@ -116,7 +122,7 @@ func TestAddRemoveRoundtrip(t *testing.T) {
 		t.Fatalf("stored streamtape = %+v", s.Streamtape)
 	}
 
-	if err := Add("Mixdrop", Cred{Email: "a@b.c", Token: "tok"}); err != nil {
+	if _, err := Add("Mixdrop", Cred{Email: "a@b.c", Token: "tok"}); err != nil {
 		t.Fatalf("Add mixdrop: %v", err)
 	}
 
@@ -137,19 +143,19 @@ func TestAddValidatesAndDedupes(t *testing.T) {
 	stubStore(t)
 	stubConfig(t)
 
-	if err := Add("Nope", Cred{Key: "k"}); err == nil {
+	if _, err := Add("Nope", Cred{Key: "k"}); err == nil {
 		t.Fatal("unknown host must be rejected")
 	}
-	if err := Add("VoeSX", Cred{}); err == nil {
+	if _, err := Add("VoeSX", Cred{}); err == nil {
 		t.Fatal("empty key must be rejected")
 	}
-	if err := Add("Streamtape", Cred{Key: "k"}); err == nil {
+	if _, err := Add("Streamtape", Cred{Key: "k"}); err == nil {
 		t.Fatal("streamtape without login must be rejected")
 	}
-	if err := Add("VidMoly", Cred{Key: "dup-key"}); err != nil {
+	if _, err := Add("VidMoly", Cred{Key: "dup-key"}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	if err := Add("VidMoly", Cred{Key: "dup-key"}); err == nil {
+	if _, err := Add("VidMoly", Cred{Key: "dup-key"}); err == nil {
 		t.Fatal("duplicate credential must be rejected")
 	}
 }
@@ -550,6 +556,131 @@ func TestManagedEmptyStoreNotReseeded(t *testing.T) {
 	}
 }
 
+// A quota verdict from a probe (storage full / daily limit) must land as
+// "quota" on the admin page — never "healthy" — because the key cannot accept
+// an upload until the cap resets.
+func TestProbeOneRecordsQuotaNotHealthy(t *testing.T) {
+	stubStore(t)
+
+	old := probeFuncs["Vidara"]
+	t.Cleanup(func() { probeFuncs["Vidara"] = old })
+	probeFuncs["Vidara"] = func(Cred) uploader.ProbeResult {
+		return uploader.ProbeResult{Quota: true, Message: "daily upload limit"}
+	}
+
+	h, _ := specByName("Vidara")
+	ks := probeOne(h, Cred{Key: "capped-key"})
+	if ks.Status != StatusQuota {
+		t.Fatalf("probe status = %q, want quota", ks.Status)
+	}
+	if ks.Message != "daily upload limit" {
+		t.Errorf("message = %q", ks.Message)
+	}
+}
+
+// Editing a credential through the Settings form must drop the replaced key's
+// status row (so a new key can never inherit the old key's green badge) and
+// verify the new credential inside the save, returning its verdict.
+func TestSyncLegacyFormDropsStaleStatusAndVerifiesNewKey(t *testing.T) {
+	blobs := stubStore(t)
+	stubConfig(t)
+
+	pre := &Set{Vidara: []Cred{{Key: "old-vidara-key"}}}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	oldFP := Fingerprint("old-vidara-key")
+	recordStatus("Vidara", oldFP, StatusHealthy, "")
+	if statuses[statusKeyOf("Vidara", oldFP)].Status != StatusHealthy {
+		t.Fatal("precondition: old key not healthy")
+	}
+
+	var probed []string
+	probeFuncs["Vidara"] = func(c Cred) uploader.ProbeResult {
+		probed = append(probed, c.Key)
+		return uploader.ProbeResult{OK: true}
+	}
+
+	verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", "")
+
+	if _, ok := statuses[statusKeyOf("Vidara", oldFP)]; ok {
+		t.Error("replaced key's status row survived the edit")
+	}
+	if len(probed) != 1 || probed[0] != "new-vidara-key" {
+		t.Fatalf("probed = %+v, want the new Vidara key", probed)
+	}
+	if len(verdicts) != 1 || verdicts[0].Status != StatusHealthy || verdicts[0].Label != "Vidara" {
+		t.Fatalf("verdicts = %+v, want one healthy Vidara verdict", verdicts)
+	}
+	if got := storedSet(t, blobs); len(got.Vidara) != 1 || got.Vidara[0].Key != "new-vidara-key" {
+		t.Fatalf("stored vidara = %+v", got.Vidara)
+	}
+
+	// An unchanged resubmission must not re-verify or drop the (now) current key.
+	probed = nil
+	if verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", ""); len(verdicts) != 0 {
+		t.Errorf("unchanged key returned verdicts: %+v", verdicts)
+	}
+	if len(probed) != 0 {
+		t.Errorf("unchanged key re-probed: %+v", probed)
+	}
+}
+
+// A rotated key the host rejects must surface that error in the save call
+// itself — the same request that persisted it — not only after the next sweep.
+func TestSyncLegacyFormReportsFailingKeyInSaveResponse(t *testing.T) {
+	blobs := stubStore(t)
+	stubConfig(t)
+
+	pre := &Set{Vidara: []Cred{{Key: "old-vidara-key"}}}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	probeFuncs["Vidara"] = func(Cred) uploader.ProbeResult {
+		return uploader.ProbeResult{Rejected: true, Message: "upload rejected: HTTP 401"}
+	}
+
+	verdicts := SyncLegacyForm("", "", "", "", "", "rotated-bad-key", "")
+	if len(verdicts) != 1 {
+		t.Fatalf("verdicts = %+v, want exactly the rotated key", verdicts)
+	}
+	v := verdicts[0]
+	if v.Status != StatusDead || !strings.Contains(v.Message, "401") {
+		t.Fatalf("verdict = %+v, want dead with the host's 401 message", v)
+	}
+	if v.Label != "Vidara" || v.Display != "••••-key" {
+		t.Errorf("verdict identity = %q / %q", v.Label, v.Display)
+	}
+	if got := storedSet(t, blobs); len(got.Vidara) != 1 || got.Vidara[0].Key != "rotated-bad-key" {
+		t.Fatalf("failing key was not saved: %+v", got.Vidara)
+	}
+}
+
+// Add must return the round-trip verdict it just ran, not leave verification to
+// a caller (the router used to re-find the key and probe it a second time).
+func TestAddReturnsProbeVerdict(t *testing.T) {
+	stubStore(t)
+	stubConfig(t)
+
+	probeFuncs["VidMoly"] = func(c Cred) uploader.ProbeResult {
+		if c.Key != "vm-new" {
+			t.Fatalf("probed key = %q", c.Key)
+		}
+		return uploader.ProbeResult{Quota: true, Message: "daily upload limit"}
+	}
+
+	v, err := Add("VidMoly", Cred{Key: "vm-new"})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if v.Host != "VidMoly" || v.Label != "VidMoly" || v.Status != StatusQuota || !strings.Contains(v.Message, "daily") {
+		t.Fatalf("verdict = %+v", v)
+	}
+	if s := statuses[statusKeyOf("VidMoly", Fingerprint("vm-new"))]; s.Status != StatusQuota {
+		t.Fatalf("status row = %+v, want quota", s)
+	}
+}
+
 func TestProbeOneMixdropKeepsPassiveVerdict(t *testing.T) {
 	stubStore(t)
 
@@ -566,5 +697,198 @@ func TestProbeOneMixdropKeepsPassiveVerdict(t *testing.T) {
 	ks2 := probeOne(mixdrop, Cred{Email: "a@b.c", Token: "tok"})
 	if ks2.Status != StatusDead || !strings.Contains(ks2.Message, "rejected") {
 		t.Fatalf("passive verdict wiped: %+v", ks2)
+	}
+}
+
+// A node that boots AFTER an operator edited the central store must apply the
+// loaded set immediately. refresh() only applies when it DETECTS a change, so
+// without applyLoaded the booting node's baseline already equals the DB, every
+// refresh says "no change", and the whole (6h) session uploads with the stale
+// env-derived keys — the admin-page edit would reach only nodes already
+// running when it happened.
+func TestApplyLoadedAppliesCentralSetAtBoot(t *testing.T) {
+	blobs := stubStore(t)
+	cfg := stubConfig(t)
+	cfg.VoeSXAPIKey = "stale-env-key"
+	t.Setenv("VOESX_API_KEY", "stale-env-key")
+
+	central := &Set{Managed: true, VoeSX: []Cred{{Key: "central-new-key"}}}
+	data, _ := json.Marshal(central)
+	blobs[keysKey] = &data
+
+	// Boot path: load the central set, then apply it — with NO change for a
+	// refresh() to detect afterwards.
+	ensureLoaded()
+	applyLoaded()
+
+	if cfg.VoeSXAPIKey != "central-new-key" {
+		t.Errorf("config not applied at boot: %q (stale env key survived)", cfg.VoeSXAPIKey)
+	}
+	if got := os.Getenv("VOESX_API_KEY"); got != "central-new-key" {
+		t.Errorf("env not applied at boot: %q", got)
+	}
+
+	// A Managed store the operator emptied must clear the booting node's env
+	// too — a boot can never resurrect deliberately deleted keys.
+	mu.Lock()
+	current = nil
+	lastLoadAttempt = time.Time{}
+	mu.Unlock()
+	empty, _ := json.Marshal(&Set{Managed: true})
+	blobs[keysKey] = &empty
+
+	ensureLoaded()
+	applyLoaded()
+	if cfg.VoeSXAPIKey != "" || os.Getenv("VOESX_API_KEY") != "" {
+		t.Errorf("managed empty store not applied at boot: cfg=%q env=%q", cfg.VoeSXAPIKey, os.Getenv("VOESX_API_KEY"))
+	}
+
+	// Unmanaged + empty (no store yet) must not touch anything.
+	mu.Lock()
+	current = nil
+	lastLoadAttempt = time.Time{}
+	mu.Unlock()
+	delete(blobs, keysKey)
+	cfg.VoeSXAPIKey = "env-untouched"
+	t.Setenv("VOESX_API_KEY", "env-untouched")
+
+	ensureLoaded()
+	applyLoaded()
+	if cfg.VoeSXAPIKey != "env-untouched" || os.Getenv("VOESX_API_KEY") != "env-untouched" {
+		t.Errorf("empty unmanaged load overwrote env: cfg=%q env=%q", cfg.VoeSXAPIKey, os.Getenv("VOESX_API_KEY"))
+	}
+}
+
+// Adding a key is a rotation: it must REPLACE the host's old keys everywhere
+// (config + env + store), drop their status rows, and verify the new one —
+// leaving the old dead key in the ring would keep uploads starting on a
+// credential the host already refused.
+func TestAddReplacesOldKeysAndDropsStatuses(t *testing.T) {
+	blobs := stubStore(t)
+	cfg := stubConfig(t)
+
+	pre := &Set{VoeSX: []Cred{{Key: "old-dead-key"}, {Key: "old-good-key"}}}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	deadFP := Fingerprint("old-dead-key")
+	goodFP := Fingerprint("old-good-key")
+	recordStatus("VoeSX", deadFP, StatusDead, "HTTP 401")
+	recordStatus("VoeSX", goodFP, StatusHealthy, "")
+
+	var probed []string
+	probeFuncs["VoeSX"] = func(c Cred) uploader.ProbeResult {
+		probed = append(probed, c.Key)
+		return uploader.ProbeResult{OK: true}
+	}
+
+	verdict, err := Add("VoeSX", Cred{Key: "brand-new-key"})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	s := storedSet(t, blobs)
+	if !s.Managed {
+		t.Error("replacement set must be stamped Managed")
+	}
+	if len(s.VoeSX) != 1 || s.VoeSX[0].Key != "brand-new-key" {
+		t.Fatalf("stored voesx = %+v, want only the new key", s.VoeSX)
+	}
+	if _, ok := statuses[statusKeyOf("VoeSX", deadFP)]; ok {
+		t.Error("replaced dead key's status row survived")
+	}
+	if _, ok := statuses[statusKeyOf("VoeSX", goodFP)]; ok {
+		t.Error("replaced healthy key's status row survived")
+	}
+	if len(probed) != 1 || probed[0] != "brand-new-key" {
+		t.Fatalf("probed = %+v, want exactly the new key", probed)
+	}
+	if verdict.Status != StatusHealthy {
+		t.Errorf("verdict = %+v, want healthy", verdict)
+	}
+	if cfg.VoeSXAPIKey != "brand-new-key" || os.Getenv("VOESX_API_KEY") != "brand-new-key" {
+		t.Errorf("replacement not applied: cfg=%q env=%q", cfg.VoeSXAPIKey, os.Getenv("VOESX_API_KEY"))
+	}
+}
+
+// The reaper deletes only keys the host EXPLICITLY rejected (dead): quota,
+// unknown, untested and healthy credentials must survive, their verdicts must
+// survive, and a host whose last key was dead must go dark (env cleared) —
+// while a store without any dead verdict is never re-saved.
+func TestReapDeadRemovesOnlyDeadKeys(t *testing.T) {
+	blobs := stubStore(t)
+	cfg := stubConfig(t)
+	t.Setenv("VOESX_API_KEY", "stale-env")
+	t.Setenv("VIDARA_KEY", "stale-vidara")
+
+	pre := &Set{
+		VoeSX:  []Cred{{Key: "dead-key"}, {Key: "quota-key"}, {Key: "healthy-key"}, {Key: "unknown-key"}},
+		Vidara: []Cred{{Key: "only-and-dead"}},
+	}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	recordStatus("VoeSX", Fingerprint("dead-key"), StatusDead, "upload rejected: HTTP 401")
+	recordStatus("VoeSX", Fingerprint("quota-key"), StatusQuota, "storage quota full")
+	recordStatus("VoeSX", Fingerprint("healthy-key"), StatusHealthy, "")
+	recordStatus("VoeSX", Fingerprint("unknown-key"), StatusUnknown, "host down")
+	recordStatus("Vidara", Fingerprint("only-and-dead"), StatusDead, "authentication rejected")
+
+	// Reaping must not touch the network: no probe may run.
+	probes := 0
+	origProbes := probeFuncs
+	for host, old := range probeFuncs {
+		probeFuncs[host] = func(c Cred) uploader.ProbeResult {
+			probes++
+			return old(c)
+		}
+	}
+	t.Cleanup(func() { probeFuncs = origProbes })
+
+	ensureLoaded()
+	if n := reapDead(); n != 2 {
+		t.Fatalf("reaped %d keys, want 2 (one per host)", n)
+	}
+	if probes != 0 {
+		t.Fatalf("reap ran %d probe(s), want none", probes)
+	}
+
+	s := storedSet(t, blobs)
+	if !s.Managed {
+		t.Error("reaped set must stay Managed")
+	}
+	if len(s.VoeSX) != 3 || s.VoeSX[0].Key != "quota-key" || s.VoeSX[1].Key != "healthy-key" || s.VoeSX[2].Key != "unknown-key" {
+		t.Fatalf("voesx after reap = %+v, want only quota/healthy/unknown", s.VoeSX)
+	}
+	if len(s.Vidara) != 0 {
+		t.Fatalf("vidara after reap = %+v, want empty (last key was dead)", s.Vidara)
+	}
+	if _, ok := statuses[statusKeyOf("VoeSX", Fingerprint("dead-key"))]; ok {
+		t.Error("reaped key's status row survived")
+	}
+	if statuses[statusKeyOf("VoeSX", Fingerprint("quota-key"))].Status != StatusQuota {
+		t.Error("quota verdict lost by the reaper")
+	}
+	if statuses[statusKeyOf("VoeSX", Fingerprint("healthy-key"))].Status != StatusHealthy {
+		t.Error("healthy verdict lost by the reaper")
+	}
+	if statuses[statusKeyOf("VoeSX", Fingerprint("unknown-key"))].Status != StatusUnknown {
+		t.Error("unknown verdict lost by the reaper")
+	}
+	if got := os.Getenv("VOESX_API_KEY"); got != "quota-key,healthy-key,unknown-key" {
+		t.Errorf("env after reap = %q", got)
+	}
+	// Last key of the host was dead → Managed apply must dark the host.
+	if cfg.VidaraKey != "" || os.Getenv("VIDARA_KEY") != "" {
+		t.Errorf("dead-only host not darked: cfg=%q env=%q", cfg.VidaraKey, os.Getenv("VIDARA_KEY"))
+	}
+
+	// Idempotent: nothing dead left → no second save, no change.
+	before := string(*blobs[keysKey])
+	if n := reapDead(); n != 0 {
+		t.Errorf("second reap removed %d key(s), want 0", n)
+	}
+	if string(*blobs[keysKey]) != before {
+		t.Error("noop reap must not re-save the store")
 	}
 }

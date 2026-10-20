@@ -751,21 +751,26 @@ func UpdateConfig(c *gin.Context) {
 		server.ConfigMu.Unlock()
 	}
 
-	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop / Vidara)
+	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop / Vidara).
+	// SyncLegacyForm saves the edit and verifies every new/rotated credential
+	// in this request, so the verdict can be returned to the caller below.
+	var keyVerdicts []uploadkeys.Verdict
 	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" || req.VidMolyKey != "" {
 		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
 		// Mirror the submitted credentials into the central upload-key store
 		// so this legacy rotation is fleet-wide and is not overwritten by the
 		// central set on the next sync.
-		uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
+		keyVerdicts = uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
 	}
 
 	if err := server.SaveSettings(); err != nil {
 		fmt.Printf("[WARN] could not save settings: %v\n", err)
 	}
 
-	if c.ContentType() == "application/json" {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+	// JSON clients (the Settings dialog's fetch) get the verdicts of every
+	// credential this save added or rotated; plain form posts still redirect.
+	if c.ContentType() == "application/json" || strings.Contains(c.GetHeader("Accept"), "application/json") {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "keys": keyVerdicts})
 		return
 	}
 	c.Redirect(http.StatusFound, "/")
@@ -808,24 +813,33 @@ func GetUploadKeys(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"hosts": views, "total": total})
 }
 
-// AddUploadKey appends a credential to a host's central list, applies it
-// fleet-wide, and probes it immediately.
+// AddUploadKey replaces a host's central credential list with the submitted
+// credential (a rotation — the new key supersedes the old ones everywhere),
+// applies it fleet-wide, and returns the verdict of the genuine upload
+// round-trip that Add ran before responding, instead of the row starting as
+// "untested".
 func AddUploadKey(c *gin.Context) {
 	var req UploadKeyAddRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bind: %v", err)})
 		return
 	}
-	if err := uploadkeys.Add(req.Host, uploadkeys.Cred{
+	cred := uploadkeys.Cred{
 		Key:   req.Key,
 		Login: req.Login,
 		Email: req.Email,
 		Token: req.Token,
-	}); err != nil {
+	}
+	// Add saves AND verifies the credential (one tiny test file, deleted
+	// again), so the verdict below belongs to this save. The key is already
+	// saved, so a failing check reports the host's own error on the row rather
+	// than rejecting the save.
+	verdict, err := uploadkeys.Add(req.Host, cred)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "hosts": uploadkeys.Snapshot()})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "status": verdict, "hosts": uploadkeys.Snapshot()})
 }
 
 // RemoveUploadKey drops a credential from a host's central list.
