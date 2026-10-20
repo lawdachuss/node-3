@@ -112,6 +112,36 @@ const defaultMaxRetries = 3
 // the last write before the local copy is deleted, so it gets extra attempts.
 const metadataSaveMaxRetries = 10
 
+// IsSchemaCacheStale classifies a PostgREST error body as a transient
+// schema-cache condition and returns the offending code, or "" when the
+// body carries none of them. Known codes: PGRST002 (503, cache rebuilding),
+// PGRST204 (400, column not in cache yet), 42P10 (400, ON CONFLICT
+// constraint not in cache yet). Single owner for both the database and
+// server retry loops (plan D3); retry escalation is unchanged — the codes
+// only decide classification, the callers keep their own backoff.
+func IsSchemaCacheStale(body string) string {
+	switch {
+	case strings.Contains(body, "PGRST002"):
+		return "PGRST002"
+	case strings.Contains(body, "PGRST204"):
+		return "PGRST204"
+	case strings.Contains(body, "42P10"):
+		return "42P10"
+	}
+	return ""
+}
+
+// RestTable extracts the table (or rpc procedure) name from a PostgREST
+// request path so schema-cache failures can name the write that failed:
+// "/channel_logs?select=id" → "channel_logs", "/rpc/foo" → "rpc/foo".
+func RestTable(path string) string {
+	p := path
+	if i := strings.IndexAny(p, "?"); i >= 0 {
+		p = p[:i]
+	}
+	return strings.Trim(p, "/")
+}
+
 // requestWithRetry executes the request and retries on transient errors:
 // - 503 PGRST002 — schema cache rebuilding after migration
 // - 400 PGRST204 — column not in schema cache yet (PostgREST needs to refresh)
@@ -141,33 +171,15 @@ func (c *Client) requestWithRetryN(method, path string, body interface{}, maxRet
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			bodyStr := string(bodyBytes)
 
-			// PGRST002: schema cache rebuilding after migration
-			if resp.StatusCode == 503 && strings.Contains(bodyStr, "PGRST002") {
-				lastErr = fmt.Errorf("HTTP 503: %s", bodyStr)
+			// Schema-cache transients (IsSchemaCacheStale: PGRST002 503
+			// rebuilding, PGRST204 400 column missing, 42P10 400 ON CONFLICT
+			// constraint missing). The error names the failing method+table
+			// so a real schema gap stays visible after retries exhaust
+			// (plan D3).
+			if code := IsSchemaCacheStale(bodyStr); code != "" {
+				lastErr = fmt.Errorf("HTTP %d [%s] %s %s: %s", resp.StatusCode, code, method, RestTable(path), bodyStr)
 				backoff := retryBackoff(attempt)
-				fmt.Printf("[WARN] Supabase schema cache rebuilding (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
-				resp.Body.Close()
-				time.Sleep(backoff)
-				continue
-			}
-
-			// PGRST204: column not yet in PostgREST schema cache
-			if resp.StatusCode == 400 && strings.Contains(bodyStr, "PGRST204") {
-				lastErr = fmt.Errorf("HTTP 400: %s", bodyStr)
-				backoff := retryBackoff(attempt)
-				fmt.Printf("[WARN] Supabase schema cache stale — column missing (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
-				resp.Body.Close()
-				time.Sleep(backoff)
-				continue
-			}
-
-			// 42P10: ON CONFLICT constraint not in PostgREST schema cache yet
-			// (e.g. right after a migration or during a failover). Transient —
-			// a genuine constraint error will keep failing and exhaust retries.
-			if resp.StatusCode == 400 && strings.Contains(bodyStr, "42P10") {
-				lastErr = fmt.Errorf("HTTP 400: %s", bodyStr)
-				backoff := retryBackoff(attempt)
-				fmt.Printf("[WARN] Supabase schema cache stale — ON CONFLICT constraint missing (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
+				fmt.Printf("[WARN] Supabase schema cache stale [%s] %s %s (attempt %d/%d), retrying in %v\n", code, method, RestTable(path), attempt+1, maxRetries, backoff)
 				resp.Body.Close()
 				time.Sleep(backoff)
 				continue

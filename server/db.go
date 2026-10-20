@@ -267,21 +267,15 @@ func supabaseRequestWithRetry(method, path string, body []byte, prefer string, c
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			bodyStr := string(bodyBytes)
 
-			// PGRST002: schema cache rebuilding after migration
-			if resp.StatusCode == 503 && strings.Contains(bodyStr, "PGRST002") {
-				lastErr = fmt.Errorf("HTTP 503: %s", bodyStr)
+			// Schema-cache transients via the shared classifier (PGRST002
+			// 503 rebuilding, PGRST204 400 column missing, 42P10 400 ON
+			// CONFLICT constraint missing — this copy previously lacked the
+			// 42P10 case; single owner fixes that too). The error names the
+			// failing method+table (plan D3).
+			if code := database.IsSchemaCacheStale(bodyStr); code != "" {
+				lastErr = fmt.Errorf("HTTP %d [%s] %s %s: %s", resp.StatusCode, code, method, database.RestTable(path), bodyStr)
 				backoff := supabaseRetryBackoff(attempt)
-				fmt.Printf("[WARN] Supabase schema cache rebuilding (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
-				resp.Body.Close()
-				time.Sleep(backoff)
-				continue
-			}
-
-			// PGRST204: column not yet in PostgREST schema cache
-			if resp.StatusCode == 400 && strings.Contains(bodyStr, "PGRST204") {
-				lastErr = fmt.Errorf("HTTP 400: %s", bodyStr)
-				backoff := supabaseRetryBackoff(attempt)
-				fmt.Printf("[WARN] Supabase schema cache stale — column missing (attempt %d/%d), retrying in %v\n", attempt+1, maxRetries, backoff)
+				fmt.Printf("[WARN] Supabase schema cache stale [%s] %s %s (attempt %d/%d), retrying in %v\n", code, method, database.RestTable(path), attempt+1, maxRetries, backoff)
 				resp.Body.Close()
 				time.Sleep(backoff)
 				continue
