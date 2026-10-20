@@ -17,13 +17,16 @@ fi
 
 echo "🔍 Fetching latest tunnel URL from Supabase..."
 
-RESPONSE=$(curl -s -X GET "$SUPABASE_URL/rest/v1/tunnel_sessions?select=*&order=started_at.desc&limit=1" \
+# The operative tunnel registry is nodes.web_url — keep-alive.ps1 upserts
+# it every ~5 minutes per node. (The legacy sessions table 404s and
+# `tunnels` has no live writer; both were retired in plan D2.)
+RESPONSE=$(curl -s -X GET "$SUPABASE_URL/rest/v1/nodes?select=node_id,web_url,updated_at&web_url=not.is.null&order=updated_at.desc&limit=1" \
     -H "apikey: $SUPABASE_API_KEY" \
     -H "Content-Type: application/json")
 
-TUNNEL_URL=$(echo "$RESPONSE" | grep -oP '"url":"https://[^"]+' | head -1 | cut -d'"' -f4)
-RUN_ID=$(echo "$RESPONSE" | grep -oP '"run_id":\d+' | head -1 | cut -d':' -f2)
-STARTED_AT=$(echo "$RESPONSE" | grep -oP '"started_at":"[^"]+' | head -1 | cut -d'"' -f4)
+TUNNEL_URL=$(echo "$RESPONSE" | grep -oP '"web_url":"https://[^"]+' | head -1 | cut -d'"' -f4)
+NODE_ID=$(echo "$RESPONSE" | grep -oP '"node_id":"[^"]+' | head -1 | cut -d'"' -f4)
+STARTED_AT=$(echo "$RESPONSE" | grep -oP '"updated_at":"[^"]+' | head -1 | cut -d'"' -f4)
 
 if [ -n "$TUNNEL_URL" ]; then
     echo ""
@@ -33,11 +36,11 @@ if [ -n "$TUNNEL_URL" ]; then
     echo ""
     echo "   $TUNNEL_URL"
     echo ""
-    echo "   Run ID: $RUN_ID"
-    echo "   Started: $STARTED_AT"
+    echo "   Node: $NODE_ID"
+    echo "   Updated: $STARTED_AT"
     echo ""
 else
-    echo "❌ No tunnel sessions found in Supabase"
+    echo "❌ No node tunnel URLs found in Supabase"
     echo "Make sure the GitHub Actions workflow has run at least once"
     exit 1
 fi

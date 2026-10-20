@@ -1,4 +1,4 @@
-# Get the current tunnel URL from Supabase
+﻿# Get the current tunnel URL from Supabase
 # Usage: .\scripts\get-tunnel-url.ps1
 
 $ErrorActionPreference = "Stop"
@@ -26,7 +26,10 @@ if (-not $SUPABASE_URL -or -not $SUPABASE_API_KEY) {
 Write-Host "🔍 Fetching latest tunnel URL from Supabase..." -ForegroundColor Cyan
 
 try {
-    $response = Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/tunnel_sessions?select=*&order=started_at.desc&limit=1" `
+    # The operative tunnel registry is nodes.web_url — keep-alive.ps1 upserts
+    # it every ~5 minutes per node. (The legacy sessions table 404s and
+    # `tunnels` has no live writer; both were retired in plan D2.)
+    $response = Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/nodes?select=node_id,web_url,updated_at&web_url=not.is.null&order=updated_at.desc&limit=1" `
         -Method Get `
         -Headers @{
             "apikey" = $SUPABASE_API_KEY
@@ -40,25 +43,25 @@ try {
         Write-Host "║                    🌐 WEB UI ACCESS                        ║" -ForegroundColor Green
         Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Green
         Write-Host ""
-        Write-Host "   $($tunnel.url)" -ForegroundColor Cyan
+        Write-Host "   $($tunnel.web_url)" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "   Run ID: $($tunnel.run_id)" -ForegroundColor Gray
-        Write-Host "   Started: $($tunnel.started_at)" -ForegroundColor Gray
+        Write-Host "   Node: $($tunnel.node_id)" -ForegroundColor Gray
+        Write-Host "   Updated: $($tunnel.updated_at)" -ForegroundColor Gray
         Write-Host ""
         
         # Copy to clipboard if possible
         try {
-            Set-Clipboard -Value $tunnel.url
+            Set-Clipboard -Value $tunnel.web_url
             Write-Host "✅ URL copied to clipboard!" -ForegroundColor Green
         } catch {
             Write-Host "ℹ️  Copy the URL above to access the UI" -ForegroundColor Yellow
         }
     } else {
-        Write-Host "❌ No tunnel sessions found in Supabase" -ForegroundColor Red
+        Write-Host "❌ No node tunnel URLs found in Supabase" -ForegroundColor Red
         Write-Host "Make sure the GitHub Actions workflow has run at least once" -ForegroundColor Yellow
     }
 } catch {
     Write-Host "❌ Error fetching tunnel URL: $_" -ForegroundColor Red
-    Write-Host "Check your Supabase credentials and ensure the tunnel_sessions table exists" -ForegroundColor Yellow
+    Write-Host "Check your Supabase credentials and ensure the nodes table exists" -ForegroundColor Yellow
     exit 1
 }

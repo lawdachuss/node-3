@@ -1,4 +1,4 @@
-# Quick script to open the UI in browser
+﻿# Quick script to open the UI in browser
 # Usage: .\scripts\open-ui.ps1
 
 $ErrorActionPreference = "Stop"
@@ -32,23 +32,36 @@ if (-not $SUPABASE_URL -or -not $SUPABASE_API_KEY) {
 Write-Host "📡 Fetching tunnel URLs from Supabase..." -ForegroundColor Yellow
 
 try {
-    # Get all recent tunnel sessions (last 10)
-    $response = Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/tunnel_sessions?select=*&order=started_at.desc&limit=10" `
+    # The operative tunnel registry is nodes.web_url — keep-alive.ps1 upserts
+    # it every ~5 minutes per node. (The legacy sessions table 404s and
+    # `tunnels` has no live writer; both were retired in plan D2.)
+    # Normalized to the old session-record shape so the probing loop below
+    # keeps working: url / run_id / started_at.
+    $nodeRows = Invoke-RestMethod -Uri "$SUPABASE_URL/rest/v1/nodes?select=node_id,web_url,updated_at&web_url=not.is.null&order=updated_at.desc&limit=10" `
         -Method Get `
         -Headers @{
             "apikey" = $SUPABASE_API_KEY
             "Content-Type" = "application/json"
         } -ErrorAction Stop
 
+    $response = @()
+    foreach ($n in $nodeRows) {
+        $response += [pscustomobject]@{
+            url        = $n.web_url
+            run_id     = $n.node_id
+            started_at = $n.updated_at
+        }
+    }
+
     if (-not $response -or $response.Count -eq 0) {
-        Write-Host "❌ No tunnel sessions found" -ForegroundColor Red
+        Write-Host "❌ No node tunnel URLs found" -ForegroundColor Red
         Write-Host ""
         Write-Host "Make sure the GitHub Actions workflow is running:" -ForegroundColor Yellow
         Write-Host "  https://github.com/YOUR_USERNAME/YOUR_REPO/actions" -ForegroundColor Cyan
         exit 1
     }
     
-    Write-Host "✅ Found $($response.Count) tunnel session(s)" -ForegroundColor Green
+    Write-Host "✅ Found $($response.Count) node tunnel URL(s)" -ForegroundColor Green
     Write-Host ""
     Write-Host "🔍 Testing accessibility..." -ForegroundColor Yellow
     Write-Host ""
