@@ -97,6 +97,102 @@ func ConfigFromAssignment(ca *database.ChannelAssignment) *entity.ChannelConfig 
 	return conf
 }
 
+// ReleaseDeadRunRecording makes the DB row of a just-cleared DEAD recording
+// claimable again. Wired as Manager.ReleaseHook in main.go: after the
+// stuck-recording watchdog's dead-run pass closed and deleted a wedged 0-byte
+// file, the channel's row still says status='recording' — and ReclaimChannels
+// skips 'recording' rows while the controller's stale-marker reset
+// (ResetStaleRecordingAssignments) deliberately spares protected (alive) nodes.
+// Without an owner-side release the cleared wedge burns a slot until the node
+// restarts (2026-10-17 sweep: 12/11/8 ghost slots on node-4/8/16).
+//
+// Async: the watchdog sweep must never block on the DB. All real work is in
+// runDeadRunReleaseWith, which is synchronous so it can be unit-tested.
+func (c *Coordinator) ReleaseDeadRunRecording(username string) {
+	if !c.IsPooled() || c.Client == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[coordinator] dead-run release %s panic recovered: %v", username, r)
+			}
+		}()
+		c.runDeadRunReleaseWith(username, c.Client)
+	}()
+}
+
+// runDeadRunReleaseWith resets this node's own stale 'recording' marker for a
+// dead-run channel. Guarded in three ways so a racing controller can never be
+// fought: the row must still be assigned to THIS node (a row the controller
+// reassigned in the seconds since the kill belongs to the new owner — resetting
+// it would un-pin that node's live capture), the row must still say
+// 'recording' (an already-reset row is owned by the sync loop's idle phase and
+// re-resetting it is meaningless churn), and the channel must not have started
+// recording again locally (the stream returned; the mark phase is re-claiming
+// a genuinely live capture). The process' own heartbeat marker is dropped in
+// every case so the next assignment-sync cycle never re-marks a released row.
+func (c *Coordinator) runDeadRunReleaseWith(username string, db *database.Client) {
+	if !c.isActive() || db == nil || c.Manager == nil {
+		return
+	}
+	site, ok := c.Manager.LocalChannelSite(username)
+	if !ok {
+		// The channel object is gone entirely (removed on stop); there is no
+		// site key left to address the row by, so leave the row to the
+		// ordinary staleness reset on the next cycle.
+		return
+	}
+	c.clearRecordingMarker(recMarkKey{site: site, username: username})
+
+	if c.Manager.IsRecording(username) {
+		return // the stream came back between the clear and this release
+	}
+	row, err := db.GetAssignment(username, site)
+	if err != nil {
+		log.Printf("[coordinator] dead-run release %s/%s: fetch row error (row stays for the staleness reset): %v", site, username, err)
+		return
+	}
+	if row == nil || row.AssignedNode == "" || row.AssignedNode != c.NodeID {
+		return // gone, unassigned, or moved — not this node's marker to clear
+	}
+	if row.Status != "recording" {
+		return // already reset by the sync loop — nothing to release
+	}
+	if err := db.SetAssignmentStatus(username, site, "claimed"); err != nil {
+		log.Printf("[coordinator] dead-run release %s/%s: reset error (row stays for the staleness reset): %v", site, username, err)
+		return
+	}
+	log.Printf("[coordinator] dead-run release: %s/%s was a wedged dead run — status reset to 'claimed', slot reclaimable again", site, username)
+}
+
+// recordingMarked accessors. The marker map is written by the assignment-sync
+// cycle AND by the asynchronous dead-run release (a kill can land between sync
+// cycles), so the old single-cycle-guard assumption no longer holds.
+
+func (c *Coordinator) setRecordingMarker(key recMarkKey) {
+	c.recordingMarkedMu.Lock()
+	if c.recordingMarked == nil {
+		c.recordingMarked = map[recMarkKey]bool{}
+	}
+	c.recordingMarked[key] = true
+	c.recordingMarkedMu.Unlock()
+}
+
+func (c *Coordinator) clearRecordingMarker(key recMarkKey) {
+	c.recordingMarkedMu.Lock()
+	if c.recordingMarked != nil {
+		delete(c.recordingMarked, key)
+	}
+	c.recordingMarkedMu.Unlock()
+}
+
+func (c *Coordinator) recordingMarkerIs(key recMarkKey) bool {
+	c.recordingMarkedMu.Lock()
+	defer c.recordingMarkedMu.Unlock()
+	return c.recordingMarked != nil && c.recordingMarked[key]
+}
+
 // MarshalPool marshals a slice of ChannelConfig into JSON bytes.
 func MarshalPool(pool []*entity.ChannelConfig) ([]byte, error) {
 	if pool == nil {

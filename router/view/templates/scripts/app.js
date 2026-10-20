@@ -1061,3 +1061,107 @@ document.addEventListener('error', function(e) {
         p.style.justifyContent = 'center';
     }
 }, true);
+
+// ════════════════════════════════════════════════════
+// SETTINGS DIALOG — save, then show upload-key verdicts
+// The form posts to /update_config, which verifies every
+// credential this save added or rotated before responding.
+// Submitting via fetch keeps the dialog open so a rotated
+// key that fails shows its real error where it was typed.
+// ════════════════════════════════════════════════════
+var _settingsForm = document.getElementById('settings-form');
+if (_settingsForm) {
+    _settingsForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        saveSettings(_settingsForm);
+    });
+}
+
+function settingsVerdictColor(status) {
+    if (status === 'healthy') return '#34d399';
+    if (status === 'dead') return '#f87171';
+    if (status === 'quota' || status === 'unknown') return '#fbbf24';
+    return '#a1a1aa';
+}
+
+function settingsVerdictText(v) {
+    var msg = v.message ? ' — ' + v.message : '';
+    switch (v.status) {
+        case 'healthy': return 'upload verified';
+        case 'dead': return 'failed' + msg;
+        case 'quota': return 'account capped' + msg;
+        case 'unknown': return 'could not verify' + msg;
+        default: return 'saved (no check available)' + msg;
+    }
+}
+
+function settingsResultBox() {
+    var box = document.getElementById('settings-result');
+    if (!box) return null;
+    box.innerHTML = '';
+    box.className = 'mx-4 sm:mx-6 mb-4 rounded-xl px-4 py-3 text-xs leading-relaxed';
+    return box;
+}
+
+function renderSettingsResult(keys) {
+    var box = settingsResultBox();
+    if (!box) return;
+    if (!keys || !keys.length) {
+        box.style.color = '#a1a1aa';
+        box.textContent = 'Settings saved.';
+        return;
+    }
+    keys.forEach(function(v, i) {
+        var line = document.createElement('div');
+        if (i > 0) line.style.marginTop = '6px';
+        var who = document.createElement('span');
+        who.style.color = '#d4d4d8';
+        who.textContent = (v.label || v.host || 'Key') + (v.display ? ' ' + v.display : '') + ' — ';
+        var verdict = document.createElement('span');
+        verdict.style.color = settingsVerdictColor(v.status);
+        verdict.textContent = settingsVerdictText(v);
+        line.appendChild(who);
+        line.appendChild(verdict);
+        box.appendChild(line);
+    });
+}
+
+function renderSettingsError(msg) {
+    var box = settingsResultBox();
+    if (!box) return;
+    box.style.color = '#f87171';
+    box.textContent = 'Could not save: ' + msg;
+}
+
+function saveSettings(form) {
+    var btn = form.querySelector('button[type="submit"]');
+    var label = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+    }
+    var box = settingsResultBox();
+    if (box) {
+        box.style.color = '#a1a1aa';
+        box.textContent = 'Saving and verifying keys…';
+    }
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+        body: new FormData(form)
+    }).then(function(r) {
+        return r.json().then(function(d) {
+            if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+            return d;
+        });
+    }).then(function(d) {
+        renderSettingsResult(d.keys || []);
+    }).catch(function(err) {
+        renderSettingsError(err && err.message ? err.message : 'unknown error');
+    }).finally(function() {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = label;
+        }
+    });
+}

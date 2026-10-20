@@ -580,7 +580,7 @@
 
 <!-- ═══════════════════ SETTINGS DIALOG ═══════════════════ -->
 <dialog id="settings-dialog" class="text-zinc-100 rounded-2xl w-full max-w-[540px] max-h-[85vh] overflow-y-auto p-0 border-0 shadow-2xl" style="background:#12121a;border:1px solid rgba(255,255,255,0.08)">
-    <form action="/update_config" method="POST">
+    <form id="settings-form" action="/update_config" method="POST">
         <!-- Header -->
         <div class="flex items-center justify-between px-4 sm:px-6 py-5" style="border-bottom:1px solid rgba(255,255,255,0.06)">
             <div class="flex items-center gap-3">
@@ -664,6 +664,9 @@
             <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             Settings persist to the database across restarts
         </div>
+
+        <!-- Verdict of every upload key this save added or rotated -->
+        <div id="settings-result" class="hidden mx-4 sm:mx-6 mb-4 rounded-xl px-4 py-3 text-xs leading-relaxed" style="border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02)"></div>
 
         <div class="flex justify-end gap-2 px-4 sm:px-6 pb-5">
             <button type="button" data-action="close-dialog" class="btn-secondary">Cancel</button>

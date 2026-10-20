@@ -22,6 +22,7 @@ func TestProbeVoeSXClassifiesResults(t *testing.T) {
 		handler    http.HandlerFunc
 		wantOK     bool
 		wantReject bool
+		wantQuota  bool
 	}{
 		{
 			name: "healthy",
@@ -38,11 +39,11 @@ func TestProbeVoeSXClassifiesResults(t *testing.T) {
 			wantReject: true,
 		},
 		{
-			name: "storage full counts as alive",
+			name: "storage full is quota, not healthy",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, `{"success":false,"status":400,"msg":"Not enough storage space"}`)
 			},
-			wantOK: true,
+			wantQuota: true,
 		},
 		{
 			name: "host error is undecided",
@@ -66,6 +67,9 @@ func TestProbeVoeSXClassifiesResults(t *testing.T) {
 			}
 			if got.Rejected != tc.wantReject {
 				t.Errorf("Rejected = %v, want %v (message: %q)", got.Rejected, tc.wantReject, got.Message)
+			}
+			if got.Quota != tc.wantQuota {
+				t.Errorf("Quota = %v, want %v (message: %q)", got.Quota, tc.wantQuota, got.Message)
 			}
 		})
 	}
@@ -163,6 +167,7 @@ func TestProbeVidMolyClassifiesResults(t *testing.T) {
 		handler    http.HandlerFunc
 		wantOK     bool
 		wantReject bool
+		wantQuota  bool
 	}{
 		{
 			name: "healthy",
@@ -179,11 +184,11 @@ func TestProbeVidMolyClassifiesResults(t *testing.T) {
 			wantReject: true,
 		},
 		{
-			name: "daily limit is a live key",
+			name: "daily limit is quota, not healthy",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, `{"status":429,"msg":"Daily API limit reached (50)."}`)
 			},
-			wantOK: true,
+			wantQuota: true,
 		},
 		{
 			name: "server error undecided",
@@ -200,8 +205,8 @@ func TestProbeVidMolyClassifiesResults(t *testing.T) {
 			swapBase(t, &vidmolyAPIBase, srv.URL)
 
 			got := ProbeVidMoly("test-key")
-			if got.OK != tc.wantOK || got.Rejected != tc.wantReject {
-				t.Errorf("got %+v, want OK=%v Rejected=%v", got, tc.wantOK, tc.wantReject)
+			if got.OK != tc.wantOK || got.Rejected != tc.wantReject || got.Quota != tc.wantQuota {
+				t.Errorf("got %+v, want OK=%v Rejected=%v Quota=%v", got, tc.wantOK, tc.wantReject, tc.wantQuota)
 			}
 		})
 	}

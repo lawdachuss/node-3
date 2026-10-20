@@ -188,11 +188,11 @@ func (c *Coordinator) runAssignmentSyncCycleWith(db *database.Client) {
 			// this the finished recording would stay status='recording' with a
 			// stale is_live until the node goes offline.
 			key := recMarkKey{site: site, username: lc}
-			if c.recordingMarked[key] {
+			if c.recordingMarkerIs(key) {
 				if err := db.SetAssignmentStatus(lc, site, "claimed"); err != nil {
 					log.Printf("[coordinator] assignment-sync: reset finished recording %s error: %v", lc, err)
 				}
-				delete(c.recordingMarked, key)
+				c.clearRecordingMarker(key)
 			}
 			// Owned but idle: refresh last_recorded_at so the row's "last capture"
 			// timestamp reflects a live owner proving the channel is healthy-idle,
@@ -209,7 +209,7 @@ func (c *Coordinator) runAssignmentSyncCycleWith(db *database.Client) {
 			log.Printf("[coordinator] assignment-sync: mark recording error for %s: %v", lc, err)
 			continue
 		}
-		c.recordingMarked[recMarkKey{site: site, username: lc}] = true
+		c.setRecordingMarker(recMarkKey{site: site, username: lc})
 	}
 
 	// One bulked RPC for the whole owned-idle set instead of a PATCH per
@@ -230,7 +230,13 @@ func (c *Coordinator) runAssignmentSyncCycleWith(db *database.Client) {
 	// still say 'recording' with a STALE heartbeat. A fresh heartbeat means the
 	// new owner's own mark phase is refreshing it — clearing it then would
 	// unpin ITS live capture and hand the row to a third node mid-file.
+	c.recordingMarkedMu.Lock()
+	ghostKeys := make([]recMarkKey, 0, len(c.recordingMarked))
 	for key := range c.recordingMarked {
+		ghostKeys = append(ghostKeys, key)
+	}
+	c.recordingMarkedMu.Unlock()
+	for _, key := range ghostKeys {
 		if dbMap[key.username] || repinned[key.username] {
 			continue // still ours — the main loop maintains this row
 		}
@@ -243,7 +249,7 @@ func (c *Coordinator) runAssignmentSyncCycleWith(db *database.Client) {
 			continue
 		}
 		if row == nil {
-			delete(c.recordingMarked, key) // row gone — marker is moot
+			c.clearRecordingMarker(key) // row gone — marker is moot
 			continue
 		}
 		if row.AssignedNode == c.NodeID {
@@ -256,6 +262,6 @@ func (c *Coordinator) runAssignmentSyncCycleWith(db *database.Client) {
 			}
 			log.Printf("[coordinator] assignment-sync: cleared stale ghost recording marker %s (row now on %s)", key.username, row.AssignedNode)
 		}
-		delete(c.recordingMarked, key)
+		c.clearRecordingMarker(key)
 	}
 }

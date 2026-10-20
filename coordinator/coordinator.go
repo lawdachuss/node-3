@@ -354,10 +354,14 @@ type Coordinator struct {
 	// a previously-marked channel to 'claimed' exactly once, the first cycle
 	// after it stops recording. Keyed by site+username because the same handle
 	// can exist on chaturbate AND stripchat as distinct channel_assignments
-	// rows, each with its own marker to clear. Guarded by the single-flight
-	// assignment-sync cycle guard (runAssignmentSyncCycleWith), so no mutex is
-	// needed.
+	// rows, each with its own marker to clear.
 	recordingMarked map[recMarkKey]bool
+
+	// recordingMarkedMu guards recordingMarked. The marker map previously ran
+	// only inside the single-flight assignment-sync cycle, but the asynchronous
+	// dead-run release (Task B2) also clears and drops markers between
+	// cycles, so it is guarded explicitly now.
+	recordingMarkedMu sync.Mutex
 }
 
 // recMarkKey identifies one channel_assignments row (site+username) that this
@@ -593,11 +597,11 @@ func (c *Coordinator) currentLoad() int {
 }
 
 // detectNodeID auto-detects the node identity using a priority chain:
-// 1. NODE_ID env var (explicit)
-// 2. GITHUB_REPOSITORY env var — splits by "-" and takes the last segment
-//    so "owner/MiniDelectableService-node-a" yields "a"
-// 3. os.Hostname() (VPS / local)
-// 4. Random fallback (defensive)
+//  1. NODE_ID env var (explicit)
+//  2. GITHUB_REPOSITORY env var — splits by "-" and takes the last segment
+//     so "owner/MiniDelectableService-node-a" yields "a"
+//  3. os.Hostname() (VPS / local)
+//  4. Random fallback (defensive)
 //
 // IMPORTANT: this must stay in sync with server/db.go:detectNodeID().
 func detectNodeID() string {

@@ -820,6 +820,12 @@ func start(c *cli.Context) error {
 			coord = coordinator.New(dbClient, mgr)
 			coord.LiveCheck = &liveChecker{}
 			mgr.Coordinator = coord
+			// Task B2: when the stuck-recording watchdog clears a DEAD run
+			// (monitor gone, 0-byte file), its assignment row must stop saying
+			// status='recording' — reclaim can't touch 'recording' rows, so the
+			// slot would stay ghosted until the node restarts. The coordinator
+			// release is internally async and DB-failure tolerant.
+			mgr.ReleaseHook = coord.ReleaseDeadRunRecording
 			fmt.Printf("[startup] coordinator created for node %q (pooled mode)\n", coord.NodeID)
 		} else {
 			fmt.Println("[WARN] Supabase not configured — pooled mode requires Supabase")

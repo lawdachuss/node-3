@@ -10,16 +10,18 @@ import (
 	"time"
 )
 
-// ProbeResult is the outcome of a cheap credential check against an upload
-// host's API — a GET of the same "get upload server" endpoint the upload flow
-// calls first, which every keyed video host exposes and which costs no upload
-// bandwidth.  OK means the key works; Rejected means the host EXPLICITLY
-// refused the credential (dead/revoked key — safe to show as "dead"); neither
+// ProbeResult is the outcome of a credential check against an upload host's
+// API.  OK means the credential can actually accept a file — for the Verify*
+// checks that is a real upload round-trip, not just an account lookup.
+// Rejected means the host EXPLICITLY refused the credential (dead/revoked key
+// — safe to show as "dead"); Quota means the key/account is valid but cannot
+// upload right now (storage full, daily cap — safe to show as "quota"); none
 // set means the answer was ambiguous (transport error, host down, WAF page)
 // and the key must NOT be written off.
 type ProbeResult struct {
 	OK       bool   `json:"ok"`
 	Rejected bool   `json:"rejected"`
+	Quota    bool   `json:"quota,omitempty"`
 	Message  string `json:"message,omitempty"`
 }
 
@@ -73,10 +75,13 @@ func ProbeVoeSX(apiKey string) ProbeResult {
 	probeErr := fmt.Errorf("VOE.sx: %s", msg)
 	// Quota first, mirroring the upload flow: a storage-full message can also
 	// contain "api key" wording that the broad auth matcher would otherwise
-	// misclassify as a dead key.
+	// misclassify as a dead key.  Quota is deliberately NOT OK: a full account
+	// cannot accept an upload, so calling it healthy is what made the admin
+	// page show green keys while every real upload failed.
 	if isVoeStorageFull(probeErr) {
-		// The key authenticates fine; the account is simply full. Not dead.
-		return ProbeResult{OK: true, Message: "storage quota full: " + msg}
+		// The key authenticates fine; the account is simply full. Not dead,
+		// and not healthy either.
+		return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
 	}
 	if isVoeAuthError(probeErr) {
 		return ProbeResult{Rejected: true, Message: msg}
@@ -140,9 +145,10 @@ func ProbeVidMoly(apiKey string) ProbeResult {
 	}
 	probeErr := fmt.Errorf("VidMoly: %s", msg)
 	// Daily-limit first, mirroring the upload flow: a valid key whose budget
-	// is spent must never be shown as dead.
+	// is spent must never be shown as dead — and must not be shown as healthy
+	// either, since no upload can succeed until the cap resets.
 	if isVidMolyDailyLimit(probeErr) {
-		return ProbeResult{OK: true, Message: "daily api limit: " + msg}
+		return ProbeResult{Quota: true, Message: "daily api limit: " + msg}
 	}
 	if isVidMolyAuthError(probeErr) {
 		return ProbeResult{Rejected: true, Message: msg}
@@ -190,11 +196,7 @@ func looksLikeBlockPage(status int, body []byte) bool {
 	if status != http.StatusUnauthorized && status != http.StatusForbidden {
 		return false
 	}
-	low := strings.ToLower(string(body))
-	return strings.Contains(low, "<html") ||
-		strings.Contains(low, "cloudflare") ||
-		strings.Contains(low, "cf-ray") ||
-		strings.Contains(low, "just a moment")
+	return looksLikeBlockPageText(string(body))
 }
 
 // authVerdict classifies a 401/403 probe response: Rejected when the body is
