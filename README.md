@@ -161,6 +161,38 @@ Place these in the `conf/` directory:
 .\chaturbate-dvr.exe tunnel
 ```
 
+### Fleet Diagnostics Sweep
+
+`scripts/fleet-sweep.mjs` is the maintained operator sweep for the 18-node fleet (merged from the one-off `_fleet_sweep_tmp.js` + `_actions_sweep_tmp.js`). It needs Node 18+, a `.env` with `SUPABASE_URL`/`SUPABASE_API_KEY`, and — for the `actions` section — an authenticated `gh` CLI. No secrets are ever printed.
+
+```bash
+# Everything: tunnel probes + Supabase cross-checks + upload queues + Actions
+node scripts/fleet-sweep.mjs
+
+# Only the per-node upload queue table (GET /api/uploads on every tunnel)
+node scripts/fleet-sweep.mjs --sections=uploads
+
+# Supabase checks + upload queues, skip the GitHub Actions section
+node scripts/fleet-sweep.mjs --sections=supabase,uploads
+
+# GitHub Actions deep sweep for a specific window
+node scripts/fleet-sweep.mjs --sections=actions --since=2026-10-14T00:00:00Z
+```
+
+**Sections**
+
+| Section | What it checks |
+|---|---|
+| `supabase` | roster + heartbeat freshness, tunnel probes (`/api/health`, `/api/orphans`, `/api/logs`), `channel_logs` error counts, disk usage, stuck/failed `pipeline_states`, dead-live `channel_assignments`, failed `upload_journal` rows |
+| `uploads` | per-node queue table: `active` / `pending` / `history` / `processing` counts plus failed pending/history rows |
+| `actions` | runs inventory, failing-run job logs + first error line, green-but-idle check, live/queued runs and cancel-loop detection (needs `gh`) |
+
+**Outputs:** `fleet-sweep.json` (machine-readable, `--out=` prefix to change) + `fleet-sweep.log` + a `PER-NODE PROBLEM SUMMARY` on stdout.
+
+**Exit codes:** `0` = all nodes reachable, `1` = fatal (missing `.env` / roster fetch failed), `2` = at least one node unreachable through its tunnel.
+
+**What to paste into an incident:** the `PER-NODE PROBLEM SUMMARY` block plus the `node`/`active/pending/history` rows from the uploads table — together they show which node is sick and what its pipeline is holding. Attach `fleet-sweep.json` for full detail.
+
 ## Architecture
 
 ```
