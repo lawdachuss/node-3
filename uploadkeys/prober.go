@@ -203,6 +203,20 @@ func seedFromConfig() {
 		Vidara:  csvCreds(server.Config.VidaraKey),
 		VidMoly: csvCreds(server.Config.VidMolyKey),
 	}
+	// Seed image/sprite/preview hosts from env (these have no Config fields,
+	// so read them straight from the environment).
+	imgCreds := func(v string) []Cred {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil
+		}
+		return []Cred{{Key: v}}
+	}
+	seed.Catbox = imgCreds(os.Getenv("CATBOX_USERHASH"))
+	seed.ImgBB = imgCreds(os.Getenv("IMGBB_API_KEY"))
+	seed.FreeImage = imgCreds(os.Getenv("FREEIMAGEHOST_API_KEY"))
+	seed.ImgPile = imgCreds(os.Getenv("IMGPILE_KEY"))
+	seed.ImgChest = imgCreds(os.Getenv("IMGCHEST_TOKEN"))
 	logins := strings.Split(server.Config.StreamtapeLogin, ",")
 	keys := strings.Split(server.Config.StreamtapeKey, ",")
 	n := len(logins)
