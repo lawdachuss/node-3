@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -179,9 +180,47 @@ func reapDead() int {
 // without anyone re-typing 18 .env files.
 func seedFromConfig() {
 	s, err := Load()
-	// A Managed store is the operator's — even when every list in it is empty
-	// (they deliberately deleted all keys), env must not resurrect them.
-	if err != nil || s == nil || s.Managed || s.nonEmpty() {
+	if err != nil || s == nil {
+		return
+	}
+	if s.Managed || s.nonEmpty() {
+		// A Managed store is the operator's — even when every list in it is empty
+		// (they deliberately deleted all keys), env must not resurrect them.
+		// Exception: image/sprite/preview hosts joined the central store after
+		// these lists were env-only, so an empty image list means "not managed
+		// yet" and gets seeded from env before bailing out.
+		if len(s.Catbox) == 0 && len(s.ImgBB) == 0 && len(s.FreeImage) == 0 && len(s.ImgPile) == 0 && len(s.ImgChest) == 0 {
+			envCred := func(v string) []Cred {
+				v = strings.TrimSpace(v)
+				if v == "" {
+					return nil
+				}
+				return []Cred{{Key: v}}
+			}
+			if len(s.Catbox) == 0 {
+				s.Catbox = envCred(os.Getenv("CATBOX_USERHASH"))
+			}
+			if len(s.ImgBB) == 0 {
+				s.ImgBB = envCred(os.Getenv("IMGBB_API_KEY"))
+			}
+			if len(s.FreeImage) == 0 {
+				s.FreeImage = envCred(os.Getenv("FREEIMAGEHOST_API_KEY"))
+			}
+			if len(s.ImgPile) == 0 {
+				s.ImgPile = envCred(os.Getenv("IMGPILE_KEY"))
+			}
+			if len(s.ImgChest) == 0 {
+				s.ImgChest = envCred(os.Getenv("IMGCHEST_TOKEN"))
+			}
+			if err := Save(s); err != nil {
+				fmt.Printf("[uploadkeys] seed centrally-managed image host keys: %v\n", err)
+				return
+			}
+			mu.Lock()
+			current = s
+			mu.Unlock()
+			fmt.Printf("[uploadkeys] seeded centrally-managed image host keys from env (%d host(s))\n", countHosts(s))
+		}
 		return
 	}
 	csvCreds := func(v string) []Cred {
