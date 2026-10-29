@@ -15,19 +15,24 @@ permissions:
   contents: read
   actions: write
 
-# No concurrency group. A group with cancel-in-progress: false is what made
-# every repo show a permanently "Queued" run: when the 6h cron fires while the
-# previous session is still recording, the new run waits in the concurrency
-# queue and can never self-cancel (Init doesn't run while queued). Without the
-# group, the new run starts as soon as a runner is free and the Init
-# self-cancel check in the job below kills it within a minute if a session is
-# still recording — same behavior as the reference fleet.
+# One long-running recorder at a time — enforced natively by GitHub Actions
+# via a concurrency group, which is exactly the "don't let another workflow run
+# until the 1st one is done" contract:
 #
-# Runs that wait for a RUNNER (account concurrent-job limit on the scarce
-# windows-latest quota) stay "Queued" and still cannot run Init. They are now
-# cancelled from inside any active session instead: Init clears queued
-# duplicates at startup (below) and the keep-alive loop re-cleans them every
-# 5 minutes for the whole session (see scripts/keep-alive.ps1).
+#   concurrency:
+#     group: secure-rdp
+#     cancel-in-progress: false
+#
+# A new run of this workflow waits in the concurrency queue until the previous
+# run of the same repo has COMPLETED, then starts. It never starts on top of a
+# live session, and the live session is never cancelled by the group (we do NOT
+# set cancel-in-progress: true, which would kill the recording mid-stream the
+# moment a newer run is triggered — the active recorder must keep running; only
+# queued extras would vanish). The Init self-cancel check and the keep-alive run
+# arbiter are kept as in-session backstops regardless.
+concurrency:
+  group: secure-rdp
+  cancel-in-progress: false
 
 env:
   GH_TOKEN: ${{ github.token }}
