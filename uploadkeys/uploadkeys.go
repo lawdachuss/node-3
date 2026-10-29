@@ -65,6 +65,12 @@ type Set struct {
 	Mixdrop    []Cred `json:"mixdrop,omitempty"`
 	Vidara     []Cred `json:"vidara,omitempty"`
 	VidMoly    []Cred `json:"vidmoly,omitempty"`
+	// Image / sprite / preview hosts
+	Catbox     []Cred `json:"catbox,omitempty"`
+	ImgBB      []Cred `json:"imgbb,omitempty"`
+	FreeImage  []Cred `json:"freeimage,omitempty"`
+	ImgPile    []Cred `json:"imgpile,omitempty"`
+	ImgChest   []Cred `json:"imgchest,omitempty"`
 }
 
 // KeyStatus is one credential's health as last determined by the prober or
@@ -134,6 +140,31 @@ var hostSpecs = []hostSpec{
 		name: "VidMoly", label: "VidMoly", probeable: true, fields: []string{"key"},
 		get: func(s *Set) []Cred { return s.VidMoly },
 		set: func(s *Set, v []Cred) { s.VidMoly = v },
+	},
+	{
+		name: "Catbox", label: "Catbox", probeable: false, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.Catbox },
+		set: func(s *Set, v []Cred) { s.Catbox = v },
+	},
+	{
+		name: "ImgBB", label: "ImgBB", probeable: false, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.ImgBB },
+		set: func(s *Set, v []Cred) { s.ImgBB = v },
+	},
+	{
+		name: "FreeImage", label: "freeimage.host", probeable: false, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.FreeImage },
+		set: func(s *Set, v []Cred) { s.FreeImage = v },
+	},
+	{
+		name: "ImgPile", label: "ImgPile", probeable: false, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.ImgPile },
+		set: func(s *Set, v []Cred) { s.ImgPile = v },
+	},
+	{
+		name: "ImgChest", label: "ImgChest", probeable: false, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.ImgChest },
+		set: func(s *Set, v []Cred) { s.ImgChest = v },
 	},
 }
 
@@ -284,6 +315,22 @@ func applyToConfig(s *Set) {
 	overlay(&server.Config.VoeSXAPIKey, "VOESX_API_KEY", joinKeys(s.VoeSX))
 	overlay(&server.Config.VidaraKey, "VIDARA_KEY", joinKeys(s.Vidara))
 	overlay(&server.Config.VidMolyKey, "VIDMOLY_KEY", joinKeys(s.VidMoly))
+	// Image / sprite / preview hosts: keep env vars in sync so the uploaders
+	// (which read os.Getenv at construction time) pick up central edits.
+	// server.Config has no image-host fields, so the env overlay below is what
+	// the uploaders actually read; keep it consistent with the managed flag.
+	imgOverlay := func(envVar, v string) {
+		if v != "" {
+			os.Setenv(envVar, v)
+		} else if s.Managed {
+			os.Setenv(envVar, "")
+		}
+	}
+	imgOverlay("CATBOX_USERHASH", joinKeys(s.Catbox))
+	imgOverlay("IMGBB_API_KEY", joinKeys(s.ImgBB))
+	imgOverlay("FREEIMAGEHOST_API_KEY", joinKeys(s.FreeImage))
+	imgOverlay("IMGPILE_KEY", joinKeys(s.ImgPile))
+	imgOverlay("IMGCHEST_TOKEN", joinKeys(s.ImgChest))
 	{
 		logins := make([]string, 0, len(s.Streamtape))
 		keys := make([]string, 0, len(s.Streamtape))
