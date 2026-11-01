@@ -504,7 +504,6 @@ func New(c *cli.Context) (*entity.Config, error) {
 		MixdropEmail:            c.String("mixdrop-email"),
 		MixdropToken:            c.String("mixdrop-token"),
 		VidaraKey:               c.String("vidara-key"),
-		VidMolyKey:              c.String("vidmoly-key"),
 		DisabledUploadHosts:     splitCommaList(c.String("disabled-upload-hosts")),
 		AnonMP4ViewBase:         strings.TrimSpace(c.String("anonmp4-view-base")),
 		CatboxProxyURL:          c.String("catbox-proxy-url"),

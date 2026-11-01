@@ -402,7 +402,6 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.VidaraKey,
-		cfg.VidMolyKey,
 		ch,
 	)
 

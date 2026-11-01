@@ -29,7 +29,6 @@ type persistedSettings struct {
 	MixdropEmail    string `json:"mixdrop_email,omitempty"`
 	MixdropToken    string `json:"mixdrop_token,omitempty"`
 	VidaraKey       string `json:"vidara_key,omitempty"`
-	VidMolyKey      string `json:"vidmoly_key,omitempty"`
 	StripchatPDKey  string `json:"stripchat_pdkey,omitempty"`
 	AffiliateWM     string `json:"affiliate_wm,omitempty"`
 }
@@ -59,7 +58,6 @@ func SaveSettings() error {
 		MixdropEmail:    validPersistedValue(Config.MixdropEmail),
 		MixdropToken:    validPersistedValue(Config.MixdropToken),
 		VidaraKey:       validPersistedValue(Config.VidaraKey),
-		VidMolyKey:      validPersistedValue(Config.VidMolyKey),
 		StripchatPDKey:  validPersistedValue(Config.StripchatPDKey),
 		AffiliateWM:     validPersistedValue(Config.AffiliateWM),
 	}
@@ -108,7 +106,6 @@ func LoadSettings() error {
 		Config.MixdropEmail = applyUploadCredential(Config.MixdropEmail, s.MixdropEmail, "mixdrop_email")
 		Config.MixdropToken = applyUploadCredential(Config.MixdropToken, s.MixdropToken, "mixdrop_token")
 		Config.VidaraKey = applyUploadCredential(Config.VidaraKey, s.VidaraKey, "vidara_key")
-		Config.VidMolyKey = applyUploadCredential(Config.VidMolyKey, s.VidMolyKey, "vidmoly_key")
 		if v := validPersistedValue(s.StripchatPDKey); v != "" {
 			Config.StripchatPDKey = v
 		}
@@ -146,7 +143,6 @@ func LoadSettings() error {
 		s.MixdropEmail = ""
 		s.MixdropToken = ""
 		s.VidaraKey = ""
-		s.VidMolyKey = ""
 		s.StripchatPDKey = ""
 		s.AffiliateWM = ""
 	}
@@ -357,7 +353,7 @@ func ApplyCentralSessionDuration() {
 }
 
 // UpdateUploaderCredentials updates upload service credentials and protects concurrent access with a mutex.
-func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey, vidMolyKey string) {
+func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey string) {
 	// Ignore placeholder dash values so the web UI can't wipe real .env keys.
 	voeSXAPIKey = validPersistedValue(voeSXAPIKey)
 	streamtapeLogin = validPersistedValue(streamtapeLogin)
@@ -365,7 +361,6 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 	mixdropEmail = validPersistedValue(mixdropEmail)
 	mixdropToken = validPersistedValue(mixdropToken)
 	vidaraKey = validPersistedValue(vidaraKey)
-	vidMolyKey = validPersistedValue(vidMolyKey)
 
 	ConfigMu.Lock()
 	if voeSXAPIKey != "" {
@@ -385,9 +380,6 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 	}
 	if vidaraKey != "" {
 		Config.VidaraKey = vidaraKey
-	}
-	if vidMolyKey != "" {
-		Config.VidMolyKey = vidMolyKey
 	}
 	ConfigMu.Unlock()
 }

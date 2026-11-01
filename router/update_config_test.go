@@ -108,7 +108,7 @@ func TestUpdateConfigReturnsKeyVerdictsToDialogSave(t *testing.T) {
 	server.Config = &entity.Config{SupabaseURL: db.URL, SupabaseAPIKey: "test"}
 	t.Cleanup(func() { server.Config = old })
 	// applyToConfig mirrors the central set into the environment.
-	for _, v := range []string{"VOESX_API_KEY", "VIDARA_KEY", "VIDMOLY_KEY", "STREAMTAPE_CREDS"} {
+	for _, v := range []string{"VOESX_API_KEY", "VIDARA_KEY", "STREAMTAPE_CREDS"} {
 		t.Setenv(v, "")
 	}
 

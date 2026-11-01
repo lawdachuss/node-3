@@ -2,13 +2,9 @@
 --
 -- Why a shared lease is needed here.  The upload credentials are identical on
 -- every node (they come from the same GitHub Actions secrets), so a per-account
--- cap is really a FLEET cap.  Live evidence (2026-09-22 05:32 UTC,
--- GET https://vidmoly.me/api/upload/server?key=…):
+-- cap is really a FLEET cap.
 --
---   {"status":429,"msg":"Daily API limit reached (50).","limit":50,
---    "used_today":2416,"remaining_today":0}
---
--- 50 requests/day, 2,416 spent.  The per-process `timedDisabled` map
+-- The per-process `timedDisabled` map
 -- (uploader/uploader.go) can only ever teach ONE node about that; the other 17
 -- each spend their own request to rediscover it, and every node that restarts
 -- (the CI runners rotate every ~6h) pays again.  This table carries the verdict
@@ -16,7 +12,7 @@
 --
 -- Contract:
 --   * host        — the uploader host name exactly as the fleet names it
---                   ("VidMoly", "Vidara", …), primary key so a re-report
+--                   ("Vidara", "VoeSX", …), primary key so a re-report
 --                   upserts instead of piling up rows.
 --   * backoff_until — when the host may be retried (the cap's reset time, or a
 --                   conservative window for an unknown reset).

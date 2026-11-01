@@ -161,57 +161,6 @@ func TestProbeVidaraClassifiesResults(t *testing.T) {
 	}
 }
 
-func TestProbeVidMolyClassifiesResults(t *testing.T) {
-	cases := []struct {
-		name       string
-		handler    http.HandlerFunc
-		wantOK     bool
-		wantReject bool
-		wantQuota  bool
-	}{
-		{
-			name: "healthy",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				fmt.Fprint(w, `{"status":200,"msg":"ok","result":"https://up.example"}`)
-			},
-			wantOK: true,
-		},
-		{
-			name: "invalid key",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				fmt.Fprint(w, `{"status":403,"msg":"Invalid api key"}`)
-			},
-			wantReject: true,
-		},
-		{
-			name: "daily limit is quota, not healthy",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				fmt.Fprint(w, `{"status":429,"msg":"Daily API limit reached (50)."}`)
-			},
-			wantQuota: true,
-		},
-		{
-			name: "server error undecided",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusBadGateway)
-				fmt.Fprint(w, `oops`)
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(tc.handler)
-			defer srv.Close()
-			swapBase(t, &vidmolyAPIBase, srv.URL)
-
-			got := ProbeVidMoly("test-key")
-			if got.OK != tc.wantOK || got.Rejected != tc.wantReject || got.Quota != tc.wantQuota {
-				t.Errorf("got %+v, want OK=%v Rejected=%v Quota=%v", got, tc.wantOK, tc.wantReject, tc.wantQuota)
-			}
-		})
-	}
-}
-
 func TestProbeStreamtapeClassifiesResults(t *testing.T) {
 	cases := []struct {
 		name       string

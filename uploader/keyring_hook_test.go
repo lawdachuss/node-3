@@ -1,6 +1,20 @@
 package uploader
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// tempVideoFile creates a small temporary file with dummy video content for testing.
+func tempVideoFile(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "dummy.mp4")
+	if err := os.WriteFile(p, []byte("fake video payload"), 0644); err != nil {
+		t.Fatalf("write temp video: %v", err)
+	}
+	return p
+}
 
 // TestKeyRingDeathHookReportsRotatedKey verifies the real-time death signal:
 // rotating away from a labeled ring entry reports the abandoned key, its host,
@@ -58,7 +72,6 @@ func TestKeyRingDeathHookNilIsSafe(t *testing.T) {
 func TestLabeledConstructorsTagHosts(t *testing.T) {
 	t.Setenv("VOESX_API_KEY", "")
 	t.Setenv("VIDARA_KEY", "")
-	t.Setenv("VIDMOLY_KEY", "")
 	t.Setenv("STREAMTAPE_CREDS", "")
 
 	if h := NewVoeSXUploader("k").keys.host; h != "VoeSX" {
@@ -66,9 +79,6 @@ func TestLabeledConstructorsTagHosts(t *testing.T) {
 	}
 	if h := NewVidaraUploader("k").keys.host; h != "Vidara" {
 		t.Errorf("Vidara host = %q", h)
-	}
-	if h := NewVidMolyUploader("k").keys.host; h != "VidMoly" {
-		t.Errorf("VidMoly host = %q", h)
 	}
 	if h := NewStreamtapeUploader("l", "k").creds.host; h != "Streamtape" {
 		t.Errorf("Streamtape host = %q", h)

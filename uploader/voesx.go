@@ -90,7 +90,7 @@ func (u *VoeSXUploader) UploadWithProgress(filePath string, progress ProgressFun
 	defer release()
 
 	// Track whether the whole file body was handed to the transport on this
-	// attempt (see the matching guard in vidmoly.go).  VOE.sx is a host we
+	// attempt. VOE.sx is a host we
 	// depend on, so this guard is what makes the retry loop idempotent: once the
 	// bytes are fully sent, the only thing that can fail is reading the
 	// response — and re-streaming the same file would create a duplicate upload
@@ -139,8 +139,7 @@ func (u *VoeSXUploader) UploadWithProgress(filePath string, progress ProgressFun
 				// one, and must be rotated away from.  Checked BEFORE the generic
 				// 429 matcher below (which matches a bare "429") because VOE.sx
 				// reports quota errors as 429 — retrying a full account forever
-				// is exactly how the daily allowance gets burned (see the
-				// VidMoly daily-limit lesson).
+				// is exactly how the daily allowance gets burned.
 				if isVoeStorageFull(err) {
 					u.keys.rotateReason("storage quota full")
 					lastErr = nil

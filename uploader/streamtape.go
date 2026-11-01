@@ -18,8 +18,8 @@ var streamtapeAPIBase = "https://api.streamtape.com"
 // constructor: env `STREAMTAPE_CREDS` (comma-separated `login:key` pairs) takes
 // precedence, then the login/key passed by the caller — which may itself be two
 // comma-separated lists (see zipStreamtapeCreds) so the central upload-key
-// store can hand the fleet several accounts.  This mirrors
-// buildRingFromEnv/buildVidMolyKeyList so operators can hand each node its own
+// store can hand the fleet several accounts. This mirrors
+// buildRingFromEnv so operators can hand each node its own
 // pool without code changes.
 func buildStreamtapeCredList(login, key string) string {
 	if raw := strings.TrimSpace(os.Getenv("STREAMTAPE_CREDS")); raw != "" {
@@ -67,7 +67,7 @@ type StreamtapeUploader struct {
 // NewStreamtapeUploader creates a new Streamtape uploader instance. The
 // login/key may be overridden by a per-node pool in STREAMTAPE_CREDS, a
 // comma-separated list of `login:key` pairs that are rotated through each time
-// a credential is invalidated (mirrors the VIDMOLY_KEYS ring). A single
+// a credential is invalidated. A single
 // login+key retains the existing single-credential behavior.
 func NewStreamtapeUploader(login, key string) *StreamtapeUploader {
 	ring := newKeyRing(buildStreamtapeCredList(login, key))

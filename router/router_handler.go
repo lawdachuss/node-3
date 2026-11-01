@@ -161,7 +161,7 @@ type AdminData struct {
 
 // HostBackoffView is one active fleet-wide upload-host backoff rendered on the
 // admin page. Upload credentials are shared by every node, so a host that one
-// node found exhausted (VidMoly's 50 requests/day API cap, an exhausted key
+// node found exhausted (e.g. an exhausted key
 // ring) is skipped by the whole fleet — which otherwise looks like silent
 // missing uploads.
 type HostBackoffView struct {
@@ -674,7 +674,6 @@ type UpdateConfigRequest struct {
 	MixdropEmail    string `json:"mixdrop_email" form:"mixdrop_email"`
 	MixdropToken    string `json:"mixdrop_token" form:"mixdrop_token"`
 	VidaraKey       string `json:"vidara_key" form:"vidara_key"`
-	VidMolyKey      string `json:"vidmoly_key" form:"vidmoly_key"`
 	StripchatPDKey  string `json:"stripchat_pdkey" form:"stripchat_pdkey"`
 	AffiliateWM     string `json:"affiliate_wm" form:"affiliate_wm"`
 }
@@ -755,12 +754,12 @@ func UpdateConfig(c *gin.Context) {
 	// SyncLegacyForm saves the edit and verifies every new/rotated credential
 	// in this request, so the verdict can be returned to the caller below.
 	var keyVerdicts []uploadkeys.Verdict
-	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" || req.VidMolyKey != "" {
-		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
+	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" {
+		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey)
 		// Mirror the submitted credentials into the central upload-key store
 		// so this legacy rotation is fleet-wide and is not overwritten by the
 		// central set on the next sync.
-		keyVerdicts = uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.VidMolyKey)
+		keyVerdicts = uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey)
 	}
 
 	if err := server.SaveSettings(); err != nil {

@@ -221,68 +221,6 @@ func TestVerifyVidaraUploadRoundTripAndQuota(t *testing.T) {
 	})
 }
 
-func TestVerifyVidMolyUploadRoundTrip(t *testing.T) {
-	var uploads, deletes atomic.Int32
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/upload/server":
-			fmt.Fprintf(w, `{"status":200,"msg":"ok","result":"%s/up"}`, srv.URL)
-		case "/up":
-			data := readProbeUpload(t, r, "file")
-			uploads.Add(1)
-			if len(data) < 1000 {
-				t.Errorf("uploaded probe is %d bytes", len(data))
-			}
-			fmt.Fprint(w, `<Form name='F1'><textarea name="op">upload_result</textarea><textarea name="fn">CODE123</textarea><textarea name="st">OK</textarea></Form>`)
-		case "/api/file/delete":
-			deletes.Add(1)
-			if r.URL.Query().Get("file_code") != "CODE123" {
-				t.Errorf("file_code = %q, want CODE123", r.URL.Query().Get("file_code"))
-			}
-			fmt.Fprint(w, `{"status":200,"msg":"OK"}`)
-		default:
-			t.Errorf("unexpected probe path %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-	swapBase(t, &vidmolyAPIBase, srv.URL)
-
-	res := VerifyVidMoly("probe-key")
-	if !res.OK || res.Rejected || res.Quota {
-		t.Fatalf("res = %+v, want healthy", res)
-	}
-	if uploads.Load() != 1 || deletes.Load() != 1 {
-		t.Errorf("uploads=%d deletes=%d, want 1/1", uploads.Load(), deletes.Load())
-	}
-}
-
-func TestVerifyVidMolyDailyLimitIsQuota(t *testing.T) {
-	var uploads atomic.Int32
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/upload/server":
-			fmt.Fprint(w, `{"status":429,"msg":"Daily API limit reached (50)."}`)
-		case "/up":
-			uploads.Add(1)
-			fmt.Fprint(w, `whatever`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-	swapBase(t, &vidmolyAPIBase, srv.URL)
-
-	res := VerifyVidMoly("capped-key")
-	if res.OK || res.Rejected || !res.Quota {
-		t.Fatalf("res = %+v, want quota", res)
-	}
-	if uploads.Load() != 0 {
-		t.Errorf("uploads = %d, want 0 (a capped account must not be uploaded to)", uploads.Load())
-	}
-}
-
 func TestVerifyStreamtapeUploadRoundTrip(t *testing.T) {
 	var uploads, deletes atomic.Int32
 	var srv *httptest.Server

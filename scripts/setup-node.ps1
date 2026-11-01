@@ -27,10 +27,7 @@ param(
     [string]$SupabaseKey,
 
     [Parameter(Mandatory = $true)]
-    [string]$GithubToken,
-
-    [Parameter(Mandatory = $false)]
-    [string]$VidMolyKey
+    [string]$GithubToken
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,7 +73,6 @@ $secrets = @{
     SUPABASE_API_KEY      = $SupabaseKey
     CHANNEL_POOL_MODE     = "pooled"
     NODE_ID               = $NodeId
-    VIDMOLY_API_KEY       = $VidMolyKey
 }
 
 foreach ($key in $secrets.Keys) {

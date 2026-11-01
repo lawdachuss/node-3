@@ -69,15 +69,6 @@ else
     echo "Mixdrop: ⚠️ Missing credentials (MIXDROP_EMAIL, MIXDROP_TOKEN)"
 fi
 
-# 5. VidMoly
-if [ -n "$VIDMOLY_KEY" ]; then
-    test_host "VidMoly" \
-        "curl -s 'https://vidmoly.me/api/upload/server?key=$VIDMOLY_KEY'" \
-        "result"
-else
-    echo "VidMoly: ⚠️ Missing credentials (VIDMOLY_KEY)"
-fi
-
 # 5. VOE.sx
 if [ -n "$VOE_KEY" ]; then
     test_host "VOE" \

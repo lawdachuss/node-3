@@ -67,7 +67,7 @@ func stubConfig(t *testing.T) *entity.Config {
 	old := server.Config
 	server.Config = &entity.Config{}
 	t.Cleanup(func() { server.Config = old })
-	for _, v := range []string{"VOESX_API_KEY", "VIDARA_KEY", "VIDMOLY_KEY", "STREAMTAPE_CREDS"} {
+	for _, v := range []string{"VOESX_API_KEY", "VIDARA_KEY", "STREAMTAPE_CREDS"} {
 		t.Setenv(v, "")
 	}
 	return server.Config
@@ -152,10 +152,10 @@ func TestAddValidatesAndDedupes(t *testing.T) {
 	if _, err := Add("Streamtape", Cred{Key: "k"}); err == nil {
 		t.Fatal("streamtape without login must be rejected")
 	}
-	if _, err := Add("VidMoly", Cred{Key: "dup-key"}); err != nil {
+	if _, err := Add("Vidara", Cred{Key: "dup-key"}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	if _, err := Add("VidMoly", Cred{Key: "dup-key"}); err == nil {
+	if _, err := Add("Vidara", Cred{Key: "dup-key"}); err == nil {
 		t.Fatal("duplicate credential must be rejected")
 	}
 }
@@ -172,7 +172,6 @@ func TestApplyToConfigOverlaysAllHosts(t *testing.T) {
 		Streamtape: []Cred{{Login: "l1", Key: "k1"}, {Login: "l2", Key: "k2"}},
 		Mixdrop:    []Cred{{Email: "mix@a.c", Token: "mix-tok"}},
 		Vidara:     []Cred{{Key: "vid"}},
-		VidMoly:    []Cred{{Key: "vm1"}, {Key: "vm2"}},
 	})
 
 	if cfg.VoeSXAPIKey != "v1,v2" {
@@ -190,11 +189,8 @@ func TestApplyToConfigOverlaysAllHosts(t *testing.T) {
 	if cfg.MixdropEmail != "mix@a.c" || cfg.MixdropToken != "mix-tok" {
 		t.Errorf("mixdrop = %q / %q", cfg.MixdropEmail, cfg.MixdropToken)
 	}
-	if cfg.VidaraKey != "vid" || cfg.VidMolyKey != "vm1,vm2" {
-		t.Errorf("vidara/vitmoly = %q / %q", cfg.VidaraKey, cfg.VidMolyKey)
-	}
-	if got := os.Getenv("VIDMOLY_KEY"); got != "vm1,vm2" {
-		t.Errorf("VIDMOLY_KEY = %q", got)
+	if cfg.VidaraKey != "vid" {
+		t.Errorf("vidara = %q", cfg.VidaraKey)
 	}
 
 	// A partial set must not clear hosts it says nothing about.
@@ -270,8 +266,8 @@ func TestOnKeyDeathClassifies(t *testing.T) {
 		t.Fatalf("quota death = %+v, want quota", s)
 	}
 
-	onKeyDeath("VidMoly", "limit-secret", "daily api limit")
-	if s := statuses[statusKeyOf("VidMoly", Fingerprint("limit-secret"))]; s.Status != StatusQuota {
+	onKeyDeath("Vidara", "limit-secret", "daily api limit")
+	if s := statuses[statusKeyOf("Vidara", Fingerprint("limit-secret"))]; s.Status != StatusQuota {
 		t.Fatalf("daily-limit = %+v, want quota", s)
 	}
 }
@@ -282,12 +278,12 @@ func TestSameKeyDifferentHostsKeptSeparate(t *testing.T) {
 	stubStore(t)
 
 	recordStatus("Vidara", Fingerprint("shared-secret"), StatusDead, "rejected")
-	recordStatus("VidMoly", Fingerprint("shared-secret"), StatusHealthy, "")
+	recordStatus("VoeSX", Fingerprint("shared-secret"), StatusHealthy, "")
 	if s := statuses[statusKeyOf("Vidara", Fingerprint("shared-secret"))]; s.Status != StatusDead {
-		t.Fatalf("vidara verdict clobbered by vidmoly: %+v", s)
+		t.Fatalf("vidara verdict clobbered by voesx: %+v", s)
 	}
-	if s := statuses[statusKeyOf("VidMoly", Fingerprint("shared-secret"))]; s.Status != StatusHealthy {
-		t.Fatalf("vidmoly verdict clobbered by vidara: %+v", s)
+	if s := statuses[statusKeyOf("VoeSX", Fingerprint("shared-secret"))]; s.Status != StatusHealthy {
+		t.Fatalf("voesx verdict clobbered by vidara: %+v", s)
 	}
 }
 
@@ -299,7 +295,7 @@ func TestSyncLegacyFormReplacesOnlyGivenHosts(t *testing.T) {
 	preData, _ := json.Marshal(pre)
 	blobs[keysKey] = &preData
 
-	SyncLegacyForm("n1,n2", "l1,l2", "k1,k2", "mix@a.c", "mix-tok", "vid1", "vm1")
+	SyncLegacyForm("n1,n2", "l1,l2", "k1,k2", "mix@a.c", "mix-tok", "vid1")
 
 	s := storedSet(t, blobs)
 	if len(s.VoeSX) != 2 || s.VoeSX[0].Key != "n1" || s.VoeSX[1].Key != "n2" {
@@ -314,16 +310,13 @@ func TestSyncLegacyFormReplacesOnlyGivenHosts(t *testing.T) {
 	if len(s.Vidara) != 1 || s.Vidara[0].Key != "vid1" {
 		t.Errorf("vidara = %+v (legacy replace)", s.Vidara)
 	}
-	if len(s.VidMoly) != 1 || s.VidMoly[0].Key != "vm1" {
-		t.Errorf("vidmoly = %+v", s.VidMoly)
-	}
 	if cfg.VoeSXAPIKey != "n1,n2" {
 		t.Errorf("config not applied: %q", cfg.VoeSXAPIKey)
 	}
 
 	// All-empty submission is a no-op (the legacy form always posts every field).
 	before, _ := json.Marshal(storedSet(t, blobs))
-	SyncLegacyForm("", "", "", "", "", "", "")
+	SyncLegacyForm("", "", "", "", "", "")
 	after, _ := json.Marshal(storedSet(t, blobs))
 	if string(before) != string(after) {
 		t.Fatal("all-empty sync must not touch the store")
@@ -340,7 +333,6 @@ func TestSeedFromConfigOnlyWhenEmpty(t *testing.T) {
 	cfg.MixdropEmail = "mix@a.c"
 	cfg.MixdropToken = "mix-tok"
 	cfg.VidaraKey = "vid-env"
-	cfg.VidMolyKey = "vm-env"
 
 	seedFromConfig()
 	s := storedSet(t, blobs)
@@ -355,9 +347,6 @@ func TestSeedFromConfigOnlyWhenEmpty(t *testing.T) {
 	}
 	if len(s.Vidara) != 1 || s.Vidara[0].Key != "vid-env" {
 		t.Errorf("seeded vidara = %+v", s.Vidara)
-	}
-	if len(s.VidMoly) != 1 || s.VidMoly[0].Key != "vm-env" {
-		t.Errorf("seeded vidmoly = %+v", s.VidMoly)
 	}
 
 	// A non-empty central store must never be re-seeded from env.
@@ -444,7 +433,6 @@ func TestManagedClearsRemovedHosts(t *testing.T) {
 	cfg := stubConfig(t)
 	cfg.VoeSXAPIKey = "env-still-there"
 	t.Setenv("VOESX_API_KEY", "env-still-there")
-	cfg.VidMolyKey = "vm-env"
 	cfg.StreamtapeLogin = "sl"
 	cfg.StreamtapeKey = "sk"
 	cfg.MixdropEmail = "m@a.c"
@@ -460,9 +448,6 @@ func TestManagedClearsRemovedHosts(t *testing.T) {
 	applyToConfig(&Set{Managed: true, Vidara: []Cred{{Key: "vid"}}})
 	if cfg.VoeSXAPIKey != "" || os.Getenv("VOESX_API_KEY") != "" {
 		t.Errorf("managed empty voesx not cleared: cfg=%q env=%q", cfg.VoeSXAPIKey, os.Getenv("VOESX_API_KEY"))
-	}
-	if cfg.VidMolyKey != "" || os.Getenv("VIDMOLY_KEY") != "" {
-		t.Errorf("managed empty vidmoly not cleared: cfg=%q env=%q", cfg.VidMolyKey, os.Getenv("VIDMOLY_KEY"))
 	}
 	if cfg.StreamtapeLogin != "" || cfg.StreamtapeKey != "" || os.Getenv("STREAMTAPE_CREDS") != "" {
 		t.Errorf("managed empty streamtape not cleared: %q / %q / %q", cfg.StreamtapeLogin, cfg.StreamtapeKey, os.Getenv("STREAMTAPE_CREDS"))
@@ -527,13 +512,13 @@ func TestSyncLegacyFormMixdropPoolPreserved(t *testing.T) {
 	blobs[keysKey] = &preData
 
 	// Unchanged resubmission of the first account → pool preserved.
-	SyncLegacyForm("", "", "", "first@a.c", "tok-1", "", "")
+	SyncLegacyForm("", "", "", "first@a.c", "tok-1", "")
 	if got := storedSet(t, blobs); len(got.Mixdrop) != 2 {
 		t.Fatalf("unchanged sync truncated mixdrop pool: %+v", got.Mixdrop)
 	}
 
 	// Changed token (intentional rotation) → replaced with the single pair.
-	SyncLegacyForm("", "", "", "first@a.c", "tok-rotated", "", "")
+	SyncLegacyForm("", "", "", "first@a.c", "tok-rotated", "")
 	if got := storedSet(t, blobs); len(got.Mixdrop) != 1 || got.Mixdrop[0].Token != "tok-rotated" {
 		t.Fatalf("rotation not applied: %+v", got.Mixdrop)
 	}
@@ -601,7 +586,7 @@ func TestSyncLegacyFormDropsStaleStatusAndVerifiesNewKey(t *testing.T) {
 		return uploader.ProbeResult{OK: true}
 	}
 
-	verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", "")
+	verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key")
 
 	if _, ok := statuses[statusKeyOf("Vidara", oldFP)]; ok {
 		t.Error("replaced key's status row survived the edit")
@@ -618,7 +603,7 @@ func TestSyncLegacyFormDropsStaleStatusAndVerifiesNewKey(t *testing.T) {
 
 	// An unchanged resubmission must not re-verify or drop the (now) current key.
 	probed = nil
-	if verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", ""); len(verdicts) != 0 {
+	if verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key"); len(verdicts) != 0 {
 		t.Errorf("unchanged key returned verdicts: %+v", verdicts)
 	}
 	if len(probed) != 0 {
@@ -640,7 +625,7 @@ func TestSyncLegacyFormReportsFailingKeyInSaveResponse(t *testing.T) {
 		return uploader.ProbeResult{Rejected: true, Message: "upload rejected: HTTP 401"}
 	}
 
-	verdicts := SyncLegacyForm("", "", "", "", "", "rotated-bad-key", "")
+	verdicts := SyncLegacyForm("", "", "", "", "", "rotated-bad-key")
 	if len(verdicts) != 1 {
 		t.Fatalf("verdicts = %+v, want exactly the rotated key", verdicts)
 	}
@@ -662,21 +647,21 @@ func TestAddReturnsProbeVerdict(t *testing.T) {
 	stubStore(t)
 	stubConfig(t)
 
-	probeFuncs["VidMoly"] = func(c Cred) uploader.ProbeResult {
-		if c.Key != "vm-new" {
+	probeFuncs["Vidara"] = func(c Cred) uploader.ProbeResult {
+		if c.Key != "vid-new" {
 			t.Fatalf("probed key = %q", c.Key)
 		}
 		return uploader.ProbeResult{Quota: true, Message: "daily upload limit"}
 	}
 
-	v, err := Add("VidMoly", Cred{Key: "vm-new"})
+	v, err := Add("Vidara", Cred{Key: "vid-new"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if v.Host != "VidMoly" || v.Label != "VidMoly" || v.Status != StatusQuota || !strings.Contains(v.Message, "daily") {
+	if v.Host != "Vidara" || v.Label != "Vidara" || v.Status != StatusQuota || !strings.Contains(v.Message, "daily") {
 		t.Fatalf("verdict = %+v", v)
 	}
-	if s := statuses[statusKeyOf("VidMoly", Fingerprint("vm-new"))]; s.Status != StatusQuota {
+	if s := statuses[statusKeyOf("Vidara", Fingerprint("vid-new"))]; s.Status != StatusQuota {
 		t.Fatalf("status row = %+v, want quota", s)
 	}
 }

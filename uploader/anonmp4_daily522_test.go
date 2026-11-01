@@ -131,7 +131,7 @@ func TestAnonMP4FiveTwentyTwoWiringDisablesOnThirdStrike(t *testing.T) {
 	}
 
 	// The multi-host layer must now skip the host without contacting it.
-	m := NewMultiHostUploader("", "", "", "", "", "", "test-key", &nilLogger{})
+	m := NewMultiHostUploader("", "", "", "", "", "", &nilLogger{})
 	results := m.UploadSelected(tempVideoFile(t), []string{"AnonMP4"})
 	for _, r := range results {
 		if r.Host == "AnonMP4" && r.Error == nil && r.DownloadLink != "" {

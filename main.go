@@ -395,12 +395,6 @@ func main() {
 				Value:   "",
 			},
 			&cli.StringFlag{
-				Name:    "vidmoly-key",
-				Usage:   "API key for VidMoly uploads (free accounts cap at ~50/day — host auto-skips until the next day)",
-				EnvVars: []string{"VIDMOLY_KEY"},
-				Value:   "",
-			},
-			&cli.StringFlag{
 				Name:    "disabled-upload-hosts",
 				Usage:   "Comma-separated upload hosts to never attempt this run (e.g. \"AnonMP4\")",
 				EnvVars: []string{"DISABLED_UPLOAD_HOSTS"},

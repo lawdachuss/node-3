@@ -94,8 +94,7 @@ func isAuthHTTPStatus(err error) bool {
 		strings.Contains(low, "http 403")
 }
 
-// isDailyLimitError is the host-agnostic "cap hit for today" matcher (Vidara
-// reports its cap with different wording than VidMoly).
+// isDailyLimitError is the host-agnostic "cap hit for today" matcher.
 func isDailyLimitError(err error) bool {
 	if err == nil {
 		return false
@@ -122,8 +121,6 @@ func deleteProbeUpload(host, secret, login, link string) {
 		endpoint = fmt.Sprintf("%s/file/delete?key=%s&del_code=%s", voeSXAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
 	case "Vidara":
 		endpoint = fmt.Sprintf("%s/video/delete?api_key=%s&filecode=%s", vidaraAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
-	case "VidMoly":
-		endpoint = fmt.Sprintf("%s/api/file/delete?key=%s&file_code=%s", vidmolyAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
 	case "Streamtape":
 		endpoint = fmt.Sprintf("%s/file/delete?login=%s&key=%s&file=%s", streamtapeAPIBase, url.QueryEscape(login), url.QueryEscape(secret), url.QueryEscape(code))
 	default:
@@ -198,36 +195,6 @@ func VerifyVidara(apiKey string) ProbeResult {
 		}
 	}
 	deleteProbeUpload("Vidara", apiKey, "", link)
-	return ProbeResult{OK: true, Message: "upload verified"}
-}
-
-// VerifyVidMoly is the VidMoly equivalent of VerifyVoeSX. Its upload also
-// counts against the ~50 requests/day account cap, which is exactly why the
-// daily-limit verdict is surfaced as Quota (not dead, and not healthy).
-func VerifyVidMoly(apiKey string) ProbeResult {
-	if res := ProbeVidMoly(apiKey); !res.OK || res.Rejected || res.Quota {
-		return res
-	}
-	file, cleanup, err := writeProbeVideo()
-	if err != nil {
-		return ProbeResult{Message: err.Error()}
-	}
-	defer cleanup()
-
-	u := &VidMolyUploader{client: probeUploadClient}
-	link, err := u.uploadFile(file, apiKey, nil)
-	if err != nil {
-		msg := probeErrText(err)
-		switch {
-		case isVidMolyDailyLimit(err):
-			return ProbeResult{Quota: true, Message: "daily api limit: " + msg}
-		case isVidMolyAuthError(err) || isAuthHTTPStatus(err):
-			return ProbeResult{Rejected: true, Message: msg}
-		default:
-			return ProbeResult{Message: msg}
-		}
-	}
-	deleteProbeUpload("VidMoly", apiKey, "", link)
 	return ProbeResult{OK: true, Message: "upload verified"}
 }
 

@@ -15,7 +15,7 @@ func TestSetDisabledHostsExcludesHostsFromAvailable(t *testing.T) {
 	SetDisabledHosts([]string{"AnonMP4", "Vidara", "Streamtape"})
 	defer SetDisabledHosts(nil)
 
-	upl := NewMultiHostUploader("voe", "st-user", "st-key", "mix@a.c", "mix-tok", "vid-key", "vm-key", nil)
+	upl := NewMultiHostUploader("voe", "st-user", "st-key", "mix@a.c", "mix-tok", "vid-key", nil)
 
 	hosts := map[string]bool{}
 	for _, h := range upl.AvailableHosts() {

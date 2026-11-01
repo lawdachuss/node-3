@@ -118,44 +118,6 @@ func ProbeVidara(apiKey string) ProbeResult {
 	return ProbeResult{Message: msg}
 }
 
-// ProbeVidMoly checks one VidMoly API key via GET /api/upload/server.  NOTE:
-// this call counts against VidMoly's ~50 requests/day account cap, so the
-// background prober must only run it when the stored status is stale.
-func ProbeVidMoly(apiKey string) ProbeResult {
-	status, body, err := probeGet(fmt.Sprintf("%s/api/upload/server?key=%s", vidmolyAPIBase, url.QueryEscape(apiKey)))
-	if err != nil {
-		return ProbeResult{Message: err.Error()}
-	}
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return authVerdict(status, body)
-	}
-	if status != http.StatusOK {
-		return ProbeResult{Message: fmt.Sprintf("HTTP %d: %s", status, snippet(body))}
-	}
-	var r vidmolyServerResponse
-	if err := json.Unmarshal(body, &r); err != nil {
-		return ProbeResult{Message: fmt.Sprintf("decode: %v", err)}
-	}
-	if r.Status == 200 && strings.TrimSpace(r.Result) != "" {
-		return ProbeResult{OK: true}
-	}
-	msg := strings.TrimSpace(r.Msg)
-	if msg == "" {
-		msg = snippet(body)
-	}
-	probeErr := fmt.Errorf("VidMoly: %s", msg)
-	// Daily-limit first, mirroring the upload flow: a valid key whose budget
-	// is spent must never be shown as dead — and must not be shown as healthy
-	// either, since no upload can succeed until the cap resets.
-	if isVidMolyDailyLimit(probeErr) {
-		return ProbeResult{Quota: true, Message: "daily api limit: " + msg}
-	}
-	if isVidMolyAuthError(probeErr) {
-		return ProbeResult{Rejected: true, Message: msg}
-	}
-	return ProbeResult{Message: msg}
-}
-
 // ProbeStreamtape checks one Streamtape login/key pair via GET /file/ul — the
 // same call the upload flow makes to obtain an upload URL.
 func ProbeStreamtape(login, key string) ProbeResult {

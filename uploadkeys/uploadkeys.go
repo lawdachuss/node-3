@@ -64,7 +64,6 @@ type Set struct {
 	Streamtape []Cred `json:"streamtape,omitempty"`
 	Mixdrop    []Cred `json:"mixdrop,omitempty"`
 	Vidara     []Cred `json:"vidara,omitempty"`
-	VidMoly    []Cred `json:"vidmoly,omitempty"`
 	// Image / sprite / preview hosts
 	Catbox     []Cred `json:"catbox,omitempty"`
 	ImgBB      []Cred `json:"imgbb,omitempty"`
@@ -135,11 +134,6 @@ var hostSpecs = []hostSpec{
 		name: "Vidara", label: "Vidara", probeable: true, fields: []string{"key"},
 		get: func(s *Set) []Cred { return s.Vidara },
 		set: func(s *Set, v []Cred) { s.Vidara = v },
-	},
-	{
-		name: "VidMoly", label: "VidMoly", probeable: true, fields: []string{"key"},
-		get: func(s *Set) []Cred { return s.VidMoly },
-		set: func(s *Set, v []Cred) { s.VidMoly = v },
 	},
 	{
 		name: "Catbox", label: "Catbox", probeable: false, fields: []string{"key"},
@@ -273,7 +267,6 @@ func cloneSet(s *Set) *Set {
 	cp.Streamtape = append([]Cred(nil), s.Streamtape...)
 	cp.Mixdrop = append([]Cred(nil), s.Mixdrop...)
 	cp.Vidara = append([]Cred(nil), s.Vidara...)
-	cp.VidMoly = append([]Cred(nil), s.VidMoly...)
 	return &cp
 }
 
@@ -314,7 +307,6 @@ func applyToConfig(s *Set) {
 	}
 	overlay(&server.Config.VoeSXAPIKey, "VOESX_API_KEY", joinKeys(s.VoeSX))
 	overlay(&server.Config.VidaraKey, "VIDARA_KEY", joinKeys(s.Vidara))
-	overlay(&server.Config.VidMolyKey, "VIDMOLY_KEY", joinKeys(s.VidMoly))
 	// Image / sprite / preview hosts: keep env vars in sync so the uploaders
 	// (which read os.Getenv at construction time) pick up central edits.
 	// server.Config has no image-host fields, so the env overlay below is what
@@ -745,8 +737,8 @@ func Remove(host, fingerprint string) error {
 // round-trip) and their verdicts returned for the save response; the status
 // rows of replaced credentials are dropped, so a rotation can never inherit
 // the previous key's verdict.
-func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, vidMolyKey string) []Verdict {
-	if strings.TrimSpace(voeSXKey+stLogin+stKey+mdEmail+mdToken+vidaraKey+vidMolyKey) == "" {
+func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey string) []Verdict {
+	if strings.TrimSpace(voeSXKey+stLogin+stKey+mdEmail+mdToken+vidaraKey) == "" {
 		return nil
 	}
 	s, err := Load()
@@ -805,9 +797,6 @@ func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, vidMo
 	}
 	if h, ok := specByName("Vidara"); ok {
 		replace(h, credsFromCSV(vidaraKey))
-	}
-	if h, ok := specByName("VidMoly"); ok {
-		replace(h, credsFromCSV(vidMolyKey))
 	}
 	if h, ok := specByName("Streamtape"); ok {
 		logins := strings.Split(stLogin, ",")

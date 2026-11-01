@@ -26,11 +26,8 @@ const hostBackoffRefreshInterval = 5 * time.Minute
 // discovers a shared-credential cap.
 //
 // Why the fleet needs this at all: the upload credentials are the same on every
-// node, so an upload host's per-account quota is a fleet quota.  VidMoly caps
-// its API at 50 requests/day for the whole fleet, and the live key showed
-// used_today 2416 — 18 nodes each spending their own request to rediscover the
-// same exhausted cap, again after every ~6-hour CI restart.  With this table one
-// node's discovery skips the host everywhere.
+// node, so an upload host's per-account quota is a fleet quota.
+// With this table one node's discovery skips the host everywhere.
 func startHostBackoffSync() {
 	// Install the report sink before the first upload can run.
 	uploader.SetPublishHostBackoff(PublishFleetHostBackoff)

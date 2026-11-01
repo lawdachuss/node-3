@@ -8,26 +8,25 @@ import (
 
 // TestFleetHostBackoffSkipsHost is the whole point of the shared table: when a
 // PEER node reported a host exhausted on the shared credentials, this node must
-// not spend its own request rediscovering that.  Before the fleet cache, every
-// node attempted the host independently — 18 nodes burning VidMoly's shared
-// 50-requests/day API budget (live: used_today 2416) just to learn it was gone.
+// not spend its own request rediscovering that. Before the fleet cache, every
+// node attempted the host independently.
 func TestFleetHostBackoffSkipsHost(t *testing.T) {
 	defer clearTimedDisablesForTest()
 
-	SetFleetHostBackoffs(map[string]time.Time{"VidMoly": time.Now().Add(time.Hour)})
+	SetFleetHostBackoffs(map[string]time.Time{"VoeSX": time.Now().Add(time.Hour)})
 
 	calls := 0
 	m := &MultiHostUploader{
 		hosts: map[string]uploaderFunc{
-			"VidMoly": func(_ string, _ ProgressFunc) (string, error) {
+			"VoeSX": func(_ string, _ ProgressFunc) (string, error) {
 				calls++
-				return "https://vidmoly.me/x", nil
+				return "https://voe.sx/x", nil
 			},
 		},
 		log: &nilLogger{},
 	}
 
-	results := m.UploadSelected("f.mp4", []string{"VidMoly"})
+	results := m.UploadSelected("f.mp4", []string{"VoeSX"})
 	if calls != 0 {
 		t.Fatalf("host inside a fleet-wide backoff must not be attempted, got %d call(s)", calls)
 	}
@@ -36,11 +35,11 @@ func TestFleetHostBackoffSkipsHost(t *testing.T) {
 	}
 
 	// Expiry passes -> the peer's backoff must lift on its own.
-	SetFleetHostBackoffs(map[string]time.Time{"VidMoly": time.Now().Add(-time.Minute)})
-	if isFleetHostBackedOff("VidMoly") {
+	SetFleetHostBackoffs(map[string]time.Time{"VoeSX": time.Now().Add(-time.Minute)})
+	if isFleetHostBackedOff("VoeSX") {
 		t.Fatal("an expired fleet backoff must not still skip the host")
 	}
-	_ = m.UploadSelected("f.mp4", []string{"VidMoly"})
+	_ = m.UploadSelected("f.mp4", []string{"VoeSX"})
 	if calls != 1 {
 		t.Fatalf("host should be attempted again once the fleet backoff expired, got %d call(s)", calls)
 	}
@@ -64,12 +63,12 @@ func TestDisableHostForPublishesFleetWide(t *testing.T) {
 	defer SetPublishHostBackoff(nil)
 
 	before := time.Now()
-	disableHostFor("VidMoly", 24*time.Hour, "daily upload limit reached")
+	disableHostFor("VoeSX", 24*time.Hour, "daily upload limit reached")
 
 	select {
 	case got := <-reports:
-		if got.host != "VidMoly" {
-			t.Errorf("published host = %q, want VidMoly", got.host)
+		if got.host != "VoeSX" {
+			t.Errorf("published host = %q, want VoeSX", got.host)
 		}
 		if got.reason != "daily upload limit reached" {
 			t.Errorf("published reason = %q", got.reason)
@@ -81,10 +80,10 @@ func TestDisableHostForPublishesFleetWide(t *testing.T) {
 		t.Fatal("disableHostFor did not publish the backoff to the fleet sink")
 	}
 
-	if !isHostTimedOut("VidMoly") {
+	if !isHostTimedOut("VoeSX") {
 		t.Fatal("host should be locally timed out")
 	}
-	if !isFleetHostBackedOff("VidMoly") {
+	if !isFleetHostBackedOff("VoeSX") {
 		t.Fatal("host should be in the local fleet cache immediately after reporting")
 	}
 }
@@ -96,19 +95,19 @@ func TestFleetBackoffsReplacedNotMerged(t *testing.T) {
 	defer clearTimedDisablesForTest()
 
 	SetFleetHostBackoffs(map[string]time.Time{
-		"VidMoly": time.Now().Add(time.Hour),
-		"Vidara":  time.Now().Add(time.Hour),
+		"VoeSX":  time.Now().Add(time.Hour),
+		"Vidara": time.Now().Add(time.Hour),
 	})
 	if !isFleetHostBackedOff("Vidara") {
 		t.Fatal("Vidara should be backed off")
 	}
 
-	SetFleetHostBackoffs(map[string]time.Time{"VidMoly": time.Now().Add(time.Hour)})
+	SetFleetHostBackoffs(map[string]time.Time{"VoeSX": time.Now().Add(time.Hour)})
 	if isFleetHostBackedOff("Vidara") {
 		t.Fatal("a host dropped from the shared table must stop being backed off")
 	}
-	if !isFleetHostBackedOff("VidMoly") {
-		t.Fatal("VidMoly should still be backed off")
+	if !isFleetHostBackedOff("VoeSX") {
+		t.Fatal("VoeSX should still be backed off")
 	}
 }
 
@@ -119,10 +118,10 @@ func TestNoFleetBackoffByDefault(t *testing.T) {
 	defer clearTimedDisablesForTest()
 	SetFleetHostBackoffs(nil)
 
-	if isFleetHostBackedOff("VidMoly") {
+	if isFleetHostBackedOff("VoeSX") {
 		t.Fatal("no table data must mean no fleet backoff")
 	}
-	if !fleetHostBackoffUntil("VidMoly").IsZero() {
+	if !fleetHostBackoffUntil("VoeSX").IsZero() {
 		t.Fatal("fleetHostBackoffUntil should be zero when nothing is published")
 	}
 }

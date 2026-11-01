@@ -907,7 +907,7 @@ const HostBackoffTable = "upload_host_backoffs"
 
 // HostBackoff is one fleet-wide upload-host backoff row.  See the 20260922
 // upload_host_backoffs migration: upload credentials are shared by every node,
-// so a per-account quota (VidMoly's 50 API requests/day) is really a fleet cap
+// so a per-account quota is really a fleet cap
 // and one node's discovery must stop the rest from re-discovering it.
 type HostBackoff struct {
 	Host         string `json:"host"`

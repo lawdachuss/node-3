@@ -54,7 +54,7 @@ func newHostBackoffTestClient(t *testing.T, fake *fakeHostBackoffDB) *Client {
 // "long expired" on some clocks and as "backed off" on others).
 func TestGetHostBackoffsParsesRows(t *testing.T) {
 	fake := &fakeHostBackoffDB{rows: `[
-		{"host":"VidMoly","backoff_until":"2026-09-22T18:00:00Z","reason":"daily api limit"},
+		{"host":"VoeSX","backoff_until":"2026-09-22T18:00:00Z","reason":"daily api limit"},
 		{"host":"Vidara","backoff_until":"2026-09-22T19:30:00Z"},
 		{"host":"","backoff_until":"2026-09-22T20:00:00Z"},
 		{"host":"Broken","backoff_until":"not-a-timestamp"}
@@ -69,8 +69,8 @@ func TestGetHostBackoffsParsesRows(t *testing.T) {
 		t.Fatalf("parsed %d backoffs, want 2 (blank host + bad stamp dropped): %v", len(got), got)
 	}
 	want, _ := time.Parse(time.RFC3339, "2026-09-22T18:00:00Z")
-	if !got["VidMoly"].Equal(want) {
-		t.Errorf("VidMoly expiry = %v, want %v", got["VidMoly"], want)
+	if !got["VoeSX"].Equal(want) {
+		t.Errorf("VoeSX expiry = %v, want %v", got["VoeSX"], want)
 	}
 	if _, ok := got["Vidara"]; !ok {
 		t.Error("Vidara row missing")
@@ -106,11 +106,11 @@ func TestGetHostBackoffsTableMissingIsClassified(t *testing.T) {
 // merge-duplicates preference (so the host primary key keeps one row per host),
 // and a body carrying the expiry, reason and reporting node.
 func TestSetHostBackoffUpsertsRow(t *testing.T) {
-	fake := &fakeHostBackoffDB{rows: `[{"host":"VidMoly"}]`}
+	fake := &fakeHostBackoffDB{rows: `[{"host":"VoeSX"}]`}
 	c := newHostBackoffTestClient(t, fake)
 
 	until := time.Date(2026, 9, 22, 18, 0, 0, 0, time.UTC)
-	if err := c.SetHostBackoff("VidMoly", until, "daily api limit", "node-11"); err != nil {
+	if err := c.SetHostBackoff("VoeSX", until, "daily api limit", "node-11"); err != nil {
 		t.Fatalf("SetHostBackoff: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestSetHostBackoffUpsertsRow(t *testing.T) {
 		t.Errorf("Prefer = %q, want an upsert (merge-duplicates)", fake.prefers[0])
 	}
 	for _, want := range []string{
-		`"host":"VidMoly"`,
+		`"host":"VoeSX"`,
 		`"backoff_until":"2026-09-22T18:00:00Z"`,
 		`"reason":"daily api limit"`,
 		`"updated_by":"node-11"`,
@@ -150,7 +150,7 @@ func TestSetHostBackoffNoopOnEmptyInput(t *testing.T) {
 	if err := c.SetHostBackoff("  ", time.Now().Add(time.Hour), "why", "node-1"); err != nil {
 		t.Fatalf("SetHostBackoff(blank host): %v", err)
 	}
-	if err := c.SetHostBackoff("VidMoly", time.Time{}, "why", "node-1"); err != nil {
+	if err := c.SetHostBackoff("VoeSX", time.Time{}, "why", "node-1"); err != nil {
 		t.Fatalf("SetHostBackoff(zero time): %v", err)
 	}
 	fake.mu.Lock()

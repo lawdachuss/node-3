@@ -17,8 +17,7 @@ import (
 const (
 	// probeInterval is how old a key's status may get before the sweep
 	// re-probes it.  Probes are genuine upload round-trips (one tiny ~2 KB
-	// file, deleted again right after), and VidMoly probes count against its
-	// ~50 API calls/day cap, so this must stay comfortably above hourly — and
+	// file, deleted again right after), so this must stay comfortably above hourly — and
 	// the fleet-wide lease below ensures only ONE node probes per interval,
 	// not all 18.
 	probeInterval = 2 * time.Hour
@@ -240,7 +239,6 @@ func seedFromConfig() {
 	seed := &Set{
 		VoeSX:   csvCreds(server.Config.VoeSXAPIKey),
 		Vidara:  csvCreds(server.Config.VidaraKey),
-		VidMoly: csvCreds(server.Config.VidMolyKey),
 	}
 	// Seed image/sprite/preview hosts from env (these have no Config fields,
 	// so read them straight from the environment).
@@ -319,8 +317,8 @@ func refresh() {
 }
 
 // probeStale probes every configured credential whose status is missing or
-// older than probeInterval, behind a fleet-wide lease so VidMoly's daily API
-// cap is not burned by every node probing independently. Each probe is a real
+// older than probeInterval, behind a fleet-wide lease so daily API
+// caps are not burned by every node probing independently. Each probe is a real
 // (tiny) upload round-trip, so the recorded verdict reflects what uploads will
 // actually do on every node.
 func probeStale() {
@@ -391,7 +389,6 @@ var probeFuncs = map[string]func(Cred) uploader.ProbeResult{
 	"VoeSX":      func(c Cred) uploader.ProbeResult { return uploader.VerifyVoeSX(c.Key) },
 	"Streamtape": func(c Cred) uploader.ProbeResult { return uploader.VerifyStreamtape(c.Login, c.Key) },
 	"Vidara":     func(c Cred) uploader.ProbeResult { return uploader.VerifyVidara(c.Key) },
-	"VidMoly":    func(c Cred) uploader.ProbeResult { return uploader.VerifyVidMoly(c.Key) },
 }
 
 // probeOne checks a single credential against its host API and records the

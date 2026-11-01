@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// imgChestAPIBase is the upload endpoint (a var, vidmolyAPIBase convention, so
+// imgChestAPIBase is the upload endpoint (a var so
 // tests can point it at an httptest server).
 var imgChestAPIBase = "https://api.imgchest.com/v1/post"
 

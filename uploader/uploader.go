@@ -109,7 +109,6 @@ type MultiHostUploader struct {
 	streamtape    *StreamtapeUploader
 	mixdrop       *MixdropUploader
 	vidara        *VidaraUploader
-	vidmoly       *VidMolyUploader
 	anonmp4       *AnonMP4Uploader
 	log           Logger
 	hostInitOnce  sync.Once
@@ -174,8 +173,8 @@ func isGloballyDisabled(name string) bool {
 	return globallyDisabled[name]
 }
 
-// Timed quota disables: hosts that exhaust a per-day budget (e.g. VidMoly's
-// ~50 uploads/day free cap) must be skipped for the rest of the day and then
+// Timed quota disables: hosts that exhaust a per-day budget
+// must be skipped for the rest of the day and then
 // re-enabled automatically. Kept at PACKAGE level so the window persists
 // across the per-file MultiHostUploader instances the channel creates (each
 // file builds a fresh uploader, so per-instance state cannot span files).
@@ -203,8 +202,7 @@ func disableHostFor(name string, dur time.Duration, reason string) {
 // fleetBackoff mirrors the fleet-wide host backoffs stored in Supabase.  The
 // upload credentials are shared by every node, so a per-account quota is really
 // a fleet cap: without this, all 18 nodes spend their own request to discover
-// VidMoly's exhausted 50/day API budget (live: used_today 2416 / limit 50) and
-// every CI restart pays again.  Populated by manager/host_backoff.go.
+// an exhausted API budget and every CI restart pays again.  Populated by manager/host_backoff.go.
 //
 // Deliberately consulted only where an ATTEMPT is about to be made, never in
 // AvailableHosts: IsAlreadyFullyUploaded uses that list to decide whether the
@@ -465,9 +463,6 @@ func (m *MultiHostUploader) initHosts() {
 		if m.vidara != nil && m.vidara.keys.count() > 0 && !isGloballyDisabled("Vidara") {
 			m.hosts["Vidara"] = m.vidara.UploadWithProgress
 		}
-		if m.vidmoly != nil && m.vidmoly.keys.count() > 0 && !isGloballyDisabled("VidMoly") {
-			m.hosts["VidMoly"] = m.vidmoly.UploadWithProgress
-		}
 		// AnonMP4: always available (no API key required)
 		if m.anonmp4 != nil && !isGloballyDisabled("AnonMP4") {
 			m.hosts["AnonMP4"] = m.anonmp4.UploadWithProgress
@@ -476,7 +471,7 @@ func (m *MultiHostUploader) initHosts() {
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey, vidMolyKey string, log Logger) *MultiHostUploader {
+func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey string, log Logger) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -486,7 +481,6 @@ func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEm
 		streamtape: NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
 		mixdrop:    NewMixdropUploader(mixdropEmail, mixdropToken),
 		vidara:     NewVidaraUploader(vidaraKey),
-		vidmoly:    NewVidMolyUploader(vidMolyKey),
 		anonmp4:    NewAnonMP4Uploader(),
 		log:        log,
 	}
@@ -577,13 +571,11 @@ func isUploadAuthError(err error) bool {
 }
 
 // keysExhaustedCooldown is how long a host is skipped once EVERY configured key
-// has failed.  The three key-rotating hosts (VidMoly, VOE.sx, Vidara) all end
-// their retry loop with "<Host> upload failed: all keys exhausted", and no
-// retry inside one run can fix that — the keys have to be rotated or the host's
-// own quota has to lapse.  Without a window, each file re-walks every dead key
-// (VidMoly alone produced ~2,000 such errors and 686 "failed 3 files in a row"
-// auto-disables across the fleet in 24h, burning minutes of upload time per
-// file).  Six hours stops the churn while still self-healing within the same
+// has failed. Key-rotating hosts all end their retry loop with
+// "<Host> upload failed: all keys exhausted", and no retry inside one run can fix
+// that — the keys have to be rotated or the host's own quota has to lapse.
+// Without a window, each file re-walks every dead key.
+// Six hours stops the churn while still self-healing within the same
 // day if the operator rotates keys mid-flight.
 const keysExhaustedCooldown = 6 * time.Hour
 
@@ -708,10 +700,6 @@ func (m *MultiHostUploader) UploadSelectedWithCallback(filePath string, hosts []
 				if isVoeStorageFull(err) {
 					m.log.Error("upload: %s reported storage full — disabling it for the rest of this run", host)
 					m.DisableHost(host)
-				} else if isVidMolyDailyLimit(err) {
-					m.log.Error("upload: %s hit its daily upload limit — skipping it for ~24 hours (auto re-enables)", host)
-					disableHostFor(host, 24*time.Hour, "daily upload limit reached")
-					m.DisableHost(host)
 				} else if isKeysExhausted(err) {
 					m.log.Error("upload: %s has no working keys left — skipping it for %s (auto re-enables; rotate its keys to restore)", host, keysExhaustedCooldown)
 					disableHostFor(host, keysExhaustedCooldown, "all configured keys exhausted")
@@ -798,10 +786,6 @@ func (m *MultiHostUploader) UploadSelectedPriority(filePath string, hosts []stri
 			m.log.Error("upload: %s (priority) failed for %s: %v", host, filePath, err)
 			if isVoeStorageFull(err) {
 				m.log.Error("upload: %s reported storage full — disabling it for the rest of this run", host)
-				m.DisableHost(host)
-			} else if isVidMolyDailyLimit(err) {
-				m.log.Error("upload: %s hit its daily upload limit — skipping it for ~24 hours (auto re-enables)", host)
-				disableHostFor(host, 24*time.Hour, "daily upload limit reached")
 				m.DisableHost(host)
 			} else if isKeysExhausted(err) {
 				m.log.Error("upload: %s has no working keys left — skipping it for %s (auto re-enables; rotate its keys to restore)", host, keysExhaustedCooldown)

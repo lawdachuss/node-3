@@ -15,7 +15,7 @@ import (
 
 const imgbbAPIURLDefault = "https://api.imgbb.com/1/upload"
 
-// imgbbAPIURL is a var (vidmolyAPIBase convention) so tests can point the
+// imgbbAPIURL is a var so tests can point the
 // uploader at an httptest server.
 var imgbbAPIURL = imgbbAPIURLDefault
 

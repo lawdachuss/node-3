@@ -193,8 +193,7 @@ func isAnonMP4OriginDown(err error) bool {
 // flip the fleet-wide disable.  A single 522 can be a transient edge hiccup
 // (retry within the file's attempts), but repeated ones mean the origin is
 // down — and since the credential/endpoint is shared by every node, that is a
-// fleet cap, not a per-node one (the VidMoly daily-cap bug, findings #3, all
-// over again: without the day lease every node rediscovers the dead origin
+// fleet cap, not a per-node one: without the day lease every node rediscovers the dead origin
 // file after file).
 const anonmp4522MaxStrikes = 3
 

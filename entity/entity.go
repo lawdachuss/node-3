@@ -231,7 +231,6 @@ type Config struct {
 	MixdropEmail    string
 	MixdropToken    string
 	VidaraKey       string
-	VidMolyKey      string
 	CatboxProxyURL  string
 
 	// DisabledUploadHosts lists upload hosts that must never be attempted this

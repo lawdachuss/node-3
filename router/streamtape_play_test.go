@@ -50,7 +50,7 @@ func TestIsStreamtapeLink(t *testing.T) {
 		"STREAMTAPE.COM/e/AbCdEf1234":                      true,
 		"https://voe.sx/e/abc":                             false,
 		"https://mixdrop.ag/e/abc":                         false,
-		"https://vidmoly.me/abc": false,
+		"https://example.com/abc":                          false,
 		"":                      false,
 	}
 	for u, want := range cases {
