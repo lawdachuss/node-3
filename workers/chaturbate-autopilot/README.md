@@ -55,7 +55,7 @@ Edit that row to change thresholds / categories without redeploying.
    (AUTOPILOT) bindings are already declared.
 3. **Secrets**:
    ```bash
-   wrangler secret put SUPABASE_ANON_KEY   # your Supabase anon / project key
+   wrangler secret put SUPABASE_SERVICE_ROLE_KEY # Worker-only service_role key for writes
    wrangler secret put CB_COOKIES          # chaturbate cookies (optional seed)
    wrangler secret put CB_ALERT_WEBHOOK    # optional failure / stale webhook
    wrangler secret put CB_SUCCESS_WEBHOOK  # optional "added channels" webhook

@@ -18,11 +18,13 @@
 -- again: recordings kept their enqueue-time row with zero links (visible live as
 -- 09-21: 100% of recordings had links, 09-22: 264/345, 09-23: 0/98).
 --
--- Two casts are needed:
---   * `unp.user_id::text = rq.user_id` — the join that aborted planning;
---   * `pf.user_id::text` in the second branch — user_notifications.user_id is text
---     while performer_follows.user_id is uuid, so the follower branch would have
---     failed with 42804 as soon as a follower match existed.
+-- Casts are needed on both joins:
+--   * `unp.user_id::text = rq.user_id` — the requests branch that aborted planning;
+--   * `unp.user_id = pf.user_id::text` — user_notification_preferences.user_id is
+--     text while performer_follows.user_id is uuid (migration 007 normalizes it to
+--     uuid), so the follower branch aborted with 42883 "operator does not exist:
+--     text = uuid" as well, blocking the insert even when no user follows the
+--     performer. Both branches are fixed here.
 --
 -- `SET search_path = ''` is added too, matching the hardening migration: the body
 -- qualifies every table with public.* already, and a SECURITY DEFINER function
@@ -85,7 +87,7 @@ AS $function$
         NOW()
       FROM public.performer_follows pf
       LEFT JOIN public.user_notification_preferences unp
-        ON unp.user_id = pf.user_id
+        ON unp.user_id = pf.user_id::text
         AND unp.notification_type = 'recording_available'
       WHERE LOWER(pf.performer_username) = LOWER(v_username)
         AND (unp.enabled IS NULL OR unp.enabled = true)

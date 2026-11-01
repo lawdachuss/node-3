@@ -22,7 +22,7 @@ CB_DOMAIN = "https://chaturbate.com"
 CB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # Secrets — set locally with `wrangler secret put <NAME>` (or copy .dev.vars.example -> .dev.vars):
-#   SUPABASE_ANON_KEY  = the Supabase service_role key (NOT the anon key!) — since the
+#   SUPABASE_SERVICE_ROLE_KEY = the Supabase service_role key — since the
 #                         2026-08-14 RLS hardening migration, anon can only SELECT backend
 #                         tables and write dvr_settings:* app_settings keys, so the worker
 #                         would silently fail every write. service_role bypasses RLS.
@@ -41,4 +41,3 @@ CB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 # plan: 10 browser-minutes/day) spread out instead of bursting every 15 minutes.
 [triggers]
 crons = ["*/15 * * * *", "*/20 * * * *"]
-

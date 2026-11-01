@@ -18,26 +18,11 @@ param(
     [int]$WaitTimeout = 180
 )
 
-function Wait-ForRunToFinish($runId, $repo, $timeoutSeconds) {
-    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $info = gh run view $runId --repo $repo --json status,conclusion 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            $parsed = gh run view $runId --repo $repo --json status,conclusion | ConvertFrom-Json
-            if ($parsed.status -eq "completed") {
-                return $true
-            }
-        }
-        Start-Sleep -Seconds 3
-    }
-    return $false
-}
-
 function Invoke-Parallel($items, $scriptBlock, $throttle, $extraArg = $null) {
     $results = @()
     $jobs = @()
     $queue = [System.Collections.Queue]::new()
-    foreach ($item in $items) { $queue.Enqueue($item) }
+    foreach ($item in @($items)) { $queue.Enqueue($item) }
 
     while ($queue.Count -gt 0 -or $jobs.Count -gt 0) {
         while ($jobs.Count -lt $throttle -and $queue.Count -gt 0) {
@@ -50,12 +35,12 @@ function Invoke-Parallel($items, $scriptBlock, $throttle, $extraArg = $null) {
             $jobs += @{ Job = $job; Item = $item }
         }
 
-        $done = $jobs | Where-Object { $_.Job.State -ne 'Running' }
+        $done = @($jobs | Where-Object { $_.Job.State -ne 'Running' })
         foreach ($j in $done) {
             $result = $j.Job | Receive-Job
-            $results += $result
+            $results += @($result)
             $j.Job | Remove-Job
-            $jobs = $jobs | Where-Object { $_.Job -ne $j.Job }
+            $jobs = @($jobs | Where-Object { $_.Job -ne $j.Job })
         }
 
         if ($jobs.Count -ge $throttle -or $queue.Count -eq 0) {
@@ -76,12 +61,13 @@ $cancelScript = {
     $result = gh run list --repo $repo --limit $limit --json databaseId,status,conclusion 2>&1
     $cancelledIds = @()
     if ($LASTEXITCODE -eq 0 -and $result) {
-        $runs = $result | ConvertFrom-Json
+        $parsedRuns = $result | ConvertFrom-Json
+        $runs = @($parsedRuns)
         foreach ($run in $runs) {
             if ($run.status -ne "completed") {
                 gh run cancel $run.databaseId --repo $repo 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
-                    $cancelledIds += $run.databaseId
+                    $cancelledIds += @($run.databaseId)
                 }
             }
         }
@@ -91,13 +77,13 @@ $cancelScript = {
     } else {
         Write-Host ($repoName + ": no active runs in last " + $limit)
     }
-    return @{ Repo = $repo; RepoName = $repoName; Cancelled = $cancelledIds }
+    return [pscustomobject]@{ Repo = $repo; RepoName = $repoName; Cancelled = $cancelledIds }
 }
 
 $cancelResults = Invoke-Parallel $repoList $cancelScript $ThrottleLimit $Limit
 
 $allCancelledIds = @{}
-foreach ($r in $cancelResults) {
+foreach ($r in @($cancelResults)) {
     if ($r.Cancelled.Count -gt 0) {
         $allCancelledIds[$r.Repo] = $r.Cancelled
     }
@@ -109,8 +95,8 @@ $waitItems = @()
 foreach ($repo in $repoList) {
     if ($allCancelledIds.ContainsKey($repo)) {
         $repoName = $repo.Split('/')[-1]
-        foreach ($id in $allCancelledIds[$repo]) {
-            $waitItems += @{ RunId = $id; Repo = $repo; RepoName = $repoName }
+        foreach ($id in @($allCancelledIds[$repo])) {
+            $waitItems += [pscustomobject]@{ RunId = $id; Repo = $repo; RepoName = $repoName }
         }
     }
 }
@@ -126,17 +112,17 @@ if ($waitItems.Count -gt 0) {
             if ($LASTEXITCODE -eq 0) {
                 $parsed = gh run view $runId --repo $repo --json status,conclusion | ConvertFrom-Json
                 if ($parsed.status -eq "completed") {
-                    return @{ RunId = $runId; Repo = $repo; RepoName = $item.RepoName; Finished = $true }
+                    return [pscustomobject]@{ RunId = $runId; Repo = $repo; RepoName = $item.RepoName; Finished = $true }
                 }
             }
             Start-Sleep -Seconds 3
         }
-        return @{ RunId = $runId; Repo = $repo; RepoName = $item.RepoName; Finished = $false }
+        return [pscustomobject]@{ RunId = $runId; Repo = $repo; RepoName = $item.RepoName; Finished = $false }
     }
 
     $waitResults = Invoke-Parallel $waitItems $waitScript $ThrottleLimit $WaitTimeout
 
-    foreach ($r in $waitResults) {
+    foreach ($r in @($waitResults)) {
         if ($r.Finished) {
             Write-Host ($r.RepoName + ": run " + $r.RunId + " stopped")
         } else {
@@ -153,16 +139,16 @@ $triggerScript = {
     $result = gh workflow run secure-rdp.yml --repo $repo 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host ($repoName + ": triggered successfully")
-        return @{ Repo = $repo; Success = $true }
+        return [pscustomobject]@{ Repo = $repo; Success = $true }
     } else {
         Write-Host ($repoName + ": trigger failed - " + $result)
-        return @{ Repo = $repo; Success = $false; Error = $result }
+        return [pscustomobject]@{ Repo = $repo; Success = $false; Error = $result }
     }
 }
 
 $triggerResults = Invoke-Parallel $repoList $triggerScript $ThrottleLimit
 
-$failed = $triggerResults | Where-Object { -not $_.Success }
+$failed = @($triggerResults | Where-Object { -not $_.Success })
 if ($failed.Count -gt 0) {
     Write-Host ""
     Write-Host "=== Failed triggers: $($failed.Count) ==="

@@ -63,7 +63,7 @@
  *
  * Env / secrets (see wrangler.toml + `wrangler secret put`):
  *   SUPABASE_URL       (var)    Supabase project URL
- *   SUPABASE_ANON_KEY  (secret) Supabase anon key (RLS allows all ops here)
+ *   SUPABASE_SERVICE_ROLE_KEY (secret) Worker-only key for backend writes
  *   CB_DOMAIN          (var)    https://chaturbate.com
  *   CB_USER_AGENT      (var)    Chrome UA used to talk to Chaturbate
  *   CB_COOKIES         (secret) chaturbate cookies (optional seed)
@@ -131,8 +131,8 @@ function jsonResponse(obj, status = 200) {
 // ---- app_settings helpers ---------------------------------------------------
 function sbHeaders(env, extra = {}) {
   return {
-    apikey: env.SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
     'Content-Type': 'application/json',
     ...extra,
   };
