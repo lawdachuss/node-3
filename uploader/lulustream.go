@@ -312,6 +312,24 @@ func (u *LuluStreamUploader) getUploadServer(key string) (string, error) {
 	return server, nil
 }
 
+// luluStreamRejectionDetail explains why an HTTP-200 upload still produced no
+// file code. The API reports per-file failures in files[].status (for example
+// "video is too short"), which is far more useful than the top-level "OK".
+func luluStreamRejectionDetail(r luluStreamUploadResponse) string {
+	for _, f := range r.Files {
+		if s := strings.TrimSpace(f.Status); s != "" && !strings.EqualFold(s, "OK") {
+			return s
+		}
+		if s := strings.TrimSpace(f.Msg); s != "" && !strings.EqualFold(s, "OK") {
+			return s
+		}
+	}
+	if msg := strings.TrimSpace(r.Msg); msg != "" {
+		return msg
+	}
+	return "no file code in response"
+}
+
 func (u *LuluStreamUploader) uploadFile(filePath, key string, progress ProgressFunc) (string, error) {
 	uploadServer, err := u.getUploadServer(key)
 	if err != nil {
@@ -354,11 +372,7 @@ func (u *LuluStreamUploader) uploadFile(filePath, key string, progress ProgressF
 
 	code := uploadResp.fileCode()
 	if code == "" {
-		msg := strings.TrimSpace(uploadResp.Msg)
-		if msg == "" {
-			msg = "no file code in response"
-		}
-		return "", fmt.Errorf("upload rejected: status %d (msg: %s)", uploadResp.Status, msg)
+		return "", fmt.Errorf("upload rejected: status %d (msg: %s)", uploadResp.Status, luluStreamRejectionDetail(uploadResp))
 	}
 	if uploadResp.Status != 200 {
 		msg := strings.TrimSpace(uploadResp.Msg)

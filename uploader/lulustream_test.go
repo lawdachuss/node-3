@@ -113,3 +113,50 @@ func TestLuluStreamUploadCanonicalLinks(t *testing.T) {
 		})
 	}
 }
+
+// TestLuluStreamRejectionDetail verifies that an HTTP-200 upload with no file
+// code surfaces the per-file reason (LuluStream reports e.g. "video is too
+// short" there) instead of the uninformative top-level "OK".
+func TestLuluStreamRejectionDetail(t *testing.T) {
+	tests := []struct {
+		name string
+		resp luluStreamUploadResponse
+		want string
+	}{
+		{
+			name: "per-file status wins over top-level OK",
+			resp: luluStreamUploadResponse{
+				Status: 200,
+				Msg:    "OK",
+				Files:  []luluStreamFile{{Status: "0:0:0:video is too short", Msg: "OK"}},
+			},
+			want: "0:0:0:video is too short",
+		},
+		{
+			name: "per-file msg when status is OK",
+			resp: luluStreamUploadResponse{
+				Status: 200,
+				Msg:    "OK",
+				Files:  []luluStreamFile{{Status: "OK", Msg: "file rejected"}},
+			},
+			want: "file rejected",
+		},
+		{
+			name: "top-level msg fallback",
+			resp: luluStreamUploadResponse{Status: 200, Msg: "no server assigned"},
+			want: "no server assigned",
+		},
+		{
+			name: "generic fallback",
+			resp: luluStreamUploadResponse{Status: 200},
+			want: "no file code in response",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := luluStreamRejectionDetail(tt.resp); got != tt.want {
+				t.Fatalf("luluStreamRejectionDetail() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
