@@ -295,7 +295,7 @@ func TestSyncLegacyFormReplacesOnlyGivenHosts(t *testing.T) {
 	preData, _ := json.Marshal(pre)
 	blobs[keysKey] = &preData
 
-	SyncLegacyForm("n1,n2", "l1,l2", "k1,k2", "mix@a.c", "mix-tok", "vid1")
+	SyncLegacyForm("n1,n2", "l1,l2", "k1,k2", "mix@a.c", "mix-tok", "vid1", "", "")
 
 	s := storedSet(t, blobs)
 	if len(s.VoeSX) != 2 || s.VoeSX[0].Key != "n1" || s.VoeSX[1].Key != "n2" {
@@ -316,7 +316,7 @@ func TestSyncLegacyFormReplacesOnlyGivenHosts(t *testing.T) {
 
 	// All-empty submission is a no-op (the legacy form always posts every field).
 	before, _ := json.Marshal(storedSet(t, blobs))
-	SyncLegacyForm("", "", "", "", "", "")
+	SyncLegacyForm("", "", "", "", "", "", "", "")
 	after, _ := json.Marshal(storedSet(t, blobs))
 	if string(before) != string(after) {
 		t.Fatal("all-empty sync must not touch the store")
@@ -512,13 +512,13 @@ func TestSyncLegacyFormMixdropPoolPreserved(t *testing.T) {
 	blobs[keysKey] = &preData
 
 	// Unchanged resubmission of the first account → pool preserved.
-	SyncLegacyForm("", "", "", "first@a.c", "tok-1", "")
+	SyncLegacyForm("", "", "", "first@a.c", "tok-1", "", "", "")
 	if got := storedSet(t, blobs); len(got.Mixdrop) != 2 {
 		t.Fatalf("unchanged sync truncated mixdrop pool: %+v", got.Mixdrop)
 	}
 
 	// Changed token (intentional rotation) → replaced with the single pair.
-	SyncLegacyForm("", "", "", "first@a.c", "tok-rotated", "")
+	SyncLegacyForm("", "", "", "first@a.c", "tok-rotated", "", "", "")
 	if got := storedSet(t, blobs); len(got.Mixdrop) != 1 || got.Mixdrop[0].Token != "tok-rotated" {
 		t.Fatalf("rotation not applied: %+v", got.Mixdrop)
 	}
@@ -586,7 +586,7 @@ func TestSyncLegacyFormDropsStaleStatusAndVerifiesNewKey(t *testing.T) {
 		return uploader.ProbeResult{OK: true}
 	}
 
-	verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key")
+	verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", "", "")
 
 	if _, ok := statuses[statusKeyOf("Vidara", oldFP)]; ok {
 		t.Error("replaced key's status row survived the edit")
@@ -603,7 +603,7 @@ func TestSyncLegacyFormDropsStaleStatusAndVerifiesNewKey(t *testing.T) {
 
 	// An unchanged resubmission must not re-verify or drop the (now) current key.
 	probed = nil
-	if verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key"); len(verdicts) != 0 {
+	if verdicts := SyncLegacyForm("", "", "", "", "", "new-vidara-key", "", ""); len(verdicts) != 0 {
 		t.Errorf("unchanged key returned verdicts: %+v", verdicts)
 	}
 	if len(probed) != 0 {
@@ -625,7 +625,7 @@ func TestSyncLegacyFormReportsFailingKeyInSaveResponse(t *testing.T) {
 		return uploader.ProbeResult{Rejected: true, Message: "upload rejected: HTTP 401"}
 	}
 
-	verdicts := SyncLegacyForm("", "", "", "", "", "rotated-bad-key")
+	verdicts := SyncLegacyForm("", "", "", "", "", "rotated-bad-key", "", "")
 	if len(verdicts) != 1 {
 		t.Fatalf("verdicts = %+v, want exactly the rotated key", verdicts)
 	}
@@ -875,5 +875,103 @@ func TestReapDeadRemovesOnlyDeadKeys(t *testing.T) {
 	}
 	if string(*blobs[keysKey]) != before {
 		t.Error("noop reap must not re-save the store")
+	}
+}
+
+// Edit replaces exactly one credential of a multi-key pool: the edited row
+// keeps its position, every other key survives, only the replaced key's stale
+// status is dropped, and the replacement is verified immediately.
+func TestEditPreservesOtherKeysAndReplacesOne(t *testing.T) {
+	blobs := stubStore(t)
+	cfg := stubConfig(t)
+	t.Setenv("LULUSTREAM_KEY", "stale-env")
+
+	pre := &Set{LuluStream: []Cred{{Key: "first-key"}, {Key: "second-key"}, {Key: "third-key"}}}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	firstFP := Fingerprint("first-key")
+	secondFP := Fingerprint("second-key")
+	thirdFP := Fingerprint("third-key")
+	recordStatus("LuluStream", firstFP, StatusHealthy, "")
+	recordStatus("LuluStream", secondFP, StatusDead, "authentication rejected")
+	recordStatus("LuluStream", thirdFP, StatusQuota, "storage quota full")
+
+	var probed []string
+	probeFuncs["LuluStream"] = func(c Cred) uploader.ProbeResult {
+		probed = append(probed, c.Key)
+		return uploader.ProbeResult{OK: true}
+	}
+
+	verdict, err := Edit("LuluStream", secondFP, Cred{Key: "replacement-key"})
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+
+	s := storedSet(t, blobs)
+	if !s.Managed {
+		t.Error("edited set must stay Managed")
+	}
+	if len(s.LuluStream) != 3 ||
+		s.LuluStream[0].Key != "first-key" ||
+		s.LuluStream[1].Key != "replacement-key" ||
+		s.LuluStream[2].Key != "third-key" {
+		t.Fatalf("stored lulustream = %+v, want first/replacement/third in place", s.LuluStream)
+	}
+	if _, ok := statuses[statusKeyOf("LuluStream", secondFP)]; ok {
+		t.Error("replaced key's status row survived the edit")
+	}
+	if got := statuses[statusKeyOf("LuluStream", firstFP)]; got.Status != StatusHealthy {
+		t.Errorf("untouched healthy key's verdict changed: %+v", got)
+	}
+	if got := statuses[statusKeyOf("LuluStream", thirdFP)]; got.Status != StatusQuota {
+		t.Errorf("untouched quota key's verdict changed: %+v", got)
+	}
+	newFP := Fingerprint("replacement-key")
+	if got := statuses[statusKeyOf("LuluStream", newFP)]; got.Status != StatusHealthy {
+		t.Errorf("replacement not verified: %+v", got)
+	}
+	if len(probed) != 1 || probed[0] != "replacement-key" {
+		t.Fatalf("probed = %+v, want only the replacement", probed)
+	}
+	if verdict.Host != "LuluStream" || verdict.Label != "LuluStream" || verdict.Status != StatusHealthy {
+		t.Errorf("verdict = %+v", verdict)
+	}
+	if verdict.Display != "••••-key" {
+		t.Errorf("verdict display = %q", verdict.Display)
+	}
+	want := "first-key,replacement-key,third-key"
+	if cfg.LuluStreamKey != want || os.Getenv("LULUSTREAM_KEY") != want {
+		t.Errorf("edit not applied fleet-wide: cfg=%q env=%q", cfg.LuluStreamKey, os.Getenv("LULUSTREAM_KEY"))
+	}
+}
+
+// Edit must reject a duplicate of another credential in the same pool, an
+// unknown fingerprint, and a credential missing a required field — without
+// mutating the stored set.
+func TestEditValidatesAndDedupes(t *testing.T) {
+	blobs := stubStore(t)
+	stubConfig(t)
+
+	pre := &Set{VoeSX: []Cred{{Key: "key-a"}, {Key: "key-b"}}}
+	preData, _ := json.Marshal(pre)
+	blobs[keysKey] = &preData
+
+	if _, err := Edit("Nope", Fingerprint("key-a"), Cred{Key: "new"}); err == nil {
+		t.Fatal("unknown host must be rejected")
+	}
+	if _, err := Edit("VoeSX", "does-not-exist", Cred{Key: "new"}); err == nil {
+		t.Fatal("unknown fingerprint must be rejected")
+	}
+	if _, err := Edit("Streamtape", Fingerprint("x"), Cred{Key: "only-key"}); err == nil {
+		t.Fatal("streamtape without login must be rejected")
+	}
+	if _, err := Edit("VoeSX", Fingerprint("key-a"), Cred{Key: "key-b"}); err == nil {
+		t.Fatal("editing a key into an existing sibling must be rejected")
+	}
+
+	s := storedSet(t, blobs)
+	if len(s.VoeSX) != 2 || s.VoeSX[0].Key != "key-a" || s.VoeSX[1].Key != "key-b" {
+		t.Fatalf("failed edits mutated the store: %+v", s.VoeSX)
 	}
 }

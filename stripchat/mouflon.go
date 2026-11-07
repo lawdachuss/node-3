@@ -27,7 +27,7 @@ var knownPDKeys = map[string]string{
 }
 
 var (
-	pdkeyMu      sync.Mutex
+	pdkeyMu       sync.Mutex
 	verifiedPDKey string   // confirmed working pdkey (produces printable ASCII)
 	candidateKeys []string // 16-char alphanumeric strings extracted from player JS
 	pdkeyFetched  bool

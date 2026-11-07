@@ -17,9 +17,9 @@ import (
 // /get-video-node returns the final links.
 func TestAnonMP4ChunkedUploadFlow(t *testing.T) {
 	var (
-	mu        sync.Mutex
-	gotChunks = map[int]string{} // chunkIndex -> Content-Range header
-)
+		mu        sync.Mutex
+		gotChunks = map[int]string{} // chunkIndex -> Content-Range header
+	)
 
 	nodeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Any POST to the node URL is a chunk upload.
@@ -137,11 +137,12 @@ func TestAnonMP4ChunkedUploadFlow(t *testing.T) {
 // non-final chunk. That response used to be parsed as an error
 // ("chunk 1/903 failed: HTTP 201: 0-10485759/1893599352") and every upload
 // died on its first chunk. The chunk must be accepted and the upload succeed.
-func TestAnonMP4Chunk201AckAccepted(t *testing.T) {		nodeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var total int64
-			if n, _ := fmt.Sscanf(r.Header.Get("Content-Range"), "bytes %d-%d/%d", new(int), new(int), &total); n != 3 || total <= 0 {
-				t.Errorf("bad Content-Range: %q", r.Header.Get("Content-Range"))
-			}
+func TestAnonMP4Chunk201AckAccepted(t *testing.T) {
+	nodeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var total int64
+		if n, _ := fmt.Sscanf(r.Header.Get("Content-Range"), "bytes %d-%d/%d", new(int), new(int), &total); n != 3 || total <= 0 {
+			t.Errorf("bad Content-Range: %q", r.Header.Get("Content-Range"))
+		}
 		// 201 on every chunk — the real Worker only switches to 200 on the
 		// final one, and 201 alone must never be a failure.
 		w.WriteHeader(http.StatusCreated)

@@ -27,8 +27,8 @@ import (
 	"github.com/teacat/chaturbate-dvr/router"
 	"github.com/teacat/chaturbate-dvr/server"
 	"github.com/teacat/chaturbate-dvr/site"
-	"github.com/teacat/chaturbate-dvr/uploadkeys"
 	"github.com/teacat/chaturbate-dvr/uploader"
+	"github.com/teacat/chaturbate-dvr/uploadkeys"
 	"github.com/urfave/cli/v2"
 )
 
@@ -392,6 +392,18 @@ func main() {
 				Name:    "vidara-key",
 				Usage:   "API key for Vidara uploads",
 				EnvVars: []string{"VIDARA_KEY"},
+				Value:   "",
+			},
+			&cli.StringFlag{
+				Name:    "lulustream-key",
+				Usage:   "API key for LuluStream uploads (comma-separated for rotation)",
+				EnvVars: []string{"LULUSTREAM_KEY"},
+				Value:   "",
+			},
+			&cli.StringFlag{
+				Name:    "doodstream-api-key",
+				Usage:   "API key for DoodStream uploads (comma-separated for rotation)",
+				EnvVars: []string{"DOODSTREAM_API_KEY", "DOODSTREAM_KEY"},
 				Value:   "",
 			},
 			&cli.StringFlag{

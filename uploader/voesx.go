@@ -38,7 +38,7 @@ func NewVoeSXUploader(apiKey string) *VoeSXUploader {
 	ring := buildRingFromEnv("VOESX_API_KEY", apiKey)
 	ring.host = "VoeSX"
 	return &VoeSXUploader{
-		keys:   ring,
+		keys: ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute,
 			Transport: &http.Transport{

@@ -109,6 +109,8 @@ type MultiHostUploader struct {
 	streamtape    *StreamtapeUploader
 	mixdrop       *MixdropUploader
 	vidara        *VidaraUploader
+	lulustream    *LuluStreamUploader
+	doodstream    *DoodStreamUploader
 	anonmp4       *AnonMP4Uploader
 	log           Logger
 	hostInitOnce  sync.Once
@@ -463,6 +465,12 @@ func (m *MultiHostUploader) initHosts() {
 		if m.vidara != nil && m.vidara.keys.count() > 0 && !isGloballyDisabled("Vidara") {
 			m.hosts["Vidara"] = m.vidara.UploadWithProgress
 		}
+		if m.lulustream != nil && m.lulustream.keys.count() > 0 && !isGloballyDisabled("LuluStream") {
+			m.hosts["LuluStream"] = m.lulustream.UploadWithProgress
+		}
+		if m.doodstream != nil && m.doodstream.keys.count() > 0 && !isGloballyDisabled("DoodStream") {
+			m.hosts["DoodStream"] = m.doodstream.UploadWithProgress
+		}
 		// AnonMP4: always available (no API key required)
 		if m.anonmp4 != nil && !isGloballyDisabled("AnonMP4") {
 			m.hosts["AnonMP4"] = m.anonmp4.UploadWithProgress
@@ -471,7 +479,7 @@ func (m *MultiHostUploader) initHosts() {
 }
 
 // NewMultiHostUploader creates a new multi-host uploader
-func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey string, log Logger) *MultiHostUploader {
+func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey, luluStreamKey, doodStreamKey string, log Logger) *MultiHostUploader {
 	if log == nil {
 		log = &nilLogger{}
 	}
@@ -481,6 +489,8 @@ func NewMultiHostUploader(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEm
 		streamtape: NewStreamtapeUploader(streamtapeLogin, streamtapeKey),
 		mixdrop:    NewMixdropUploader(mixdropEmail, mixdropToken),
 		vidara:     NewVidaraUploader(vidaraKey),
+		lulustream: NewLuluStreamUploader(luluStreamKey),
+		doodstream: NewDoodStreamUploader(doodStreamKey),
 		anonmp4:    NewAnonMP4Uploader(),
 		log:        log,
 	}

@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuildHostPlayersGeneratesEmbeds(t *testing.T) {
 	players := buildHostPlayers(map[string]string{
-		"GoFile":    "https://gofile.io/d/example",
-		"VOE.sx":    "https://voe.sx/abc123",
+		"GoFile":     "https://gofile.io/d/example",
+		"VOE.sx":     "https://voe.sx/abc123",
 		"Streamtape": "https://streamtape.com/e/AbCdEf1234/",
 	})
 

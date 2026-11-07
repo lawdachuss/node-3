@@ -689,7 +689,6 @@ func withMouflonParams(u, pkey string) string {
 	return parsed.String()
 }
 
-
 // WatchHandler is a function type that processes video segments.
 type WatchHandler func(b []byte, duration float64) error
 

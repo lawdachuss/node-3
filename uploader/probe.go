@@ -118,6 +118,110 @@ func ProbeVidara(apiKey string) ProbeResult {
 	return ProbeResult{Message: msg}
 }
 
+// ProbeLuluStream checks one LuluStream API key via GET /upload/server — the
+// same call the upload flow makes to obtain an upload node.
+func ProbeLuluStream(apiKey string) ProbeResult {
+	status, body, err := probeGet(fmt.Sprintf("%s/upload/server?key=%s", luluStreamAPIBase, url.QueryEscape(apiKey)))
+	if err != nil {
+		return ProbeResult{Message: err.Error()}
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return authVerdict(status, body)
+	}
+	if status != http.StatusOK {
+		// Doodstream-family APIs (which LuluStream follows) often answer an
+		// invalid key with HTTP 400 plus a JSON verdict rather than a 200 body.
+		// Classify that verdict instead of leaving the key "unknown" forever.
+		if status == http.StatusBadRequest {
+			var r luluStreamServerResponse
+			if json.Unmarshal(body, &r) == nil {
+				if msg := strings.TrimSpace(r.Msg); msg != "" {
+					probeErr := fmt.Errorf("LuluStream: %s", msg)
+					if isLuluStreamQuotaError(probeErr) {
+						return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+					}
+					if isLuluStreamAuthError(probeErr) {
+						return ProbeResult{Rejected: true, Message: msg}
+					}
+					return ProbeResult{Message: msg}
+				}
+			}
+		}
+		return ProbeResult{Message: fmt.Sprintf("HTTP %d: %s", status, snippet(body))}
+	}
+	var r luluStreamServerResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return ProbeResult{Message: fmt.Sprintf("decode: %v", err)}
+	}
+	if r.Status == 200 && r.uploadServer() != "" {
+		return ProbeResult{OK: true}
+	}
+	msg := strings.TrimSpace(r.Msg)
+	if msg == "" {
+		msg = snippet(body)
+	}
+	probeErr := fmt.Errorf("LuluStream: %s", msg)
+	if isLuluStreamQuotaError(probeErr) {
+		return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+	}
+	if isLuluStreamAuthError(probeErr) {
+		return ProbeResult{Rejected: true, Message: msg}
+	}
+	return ProbeResult{Message: msg}
+}
+
+// ProbeDoodStream checks one DoodStream API key via GET /upload/server — the
+// same call the upload flow makes to obtain an upload node.
+func ProbeDoodStream(apiKey string) ProbeResult {
+	status, body, err := probeGet(fmt.Sprintf("%s/upload/server?key=%s", doodStreamAPIBase, url.QueryEscape(apiKey)))
+	if err != nil {
+		return ProbeResult{Message: err.Error()}
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return authVerdict(status, body)
+	}
+	if status != http.StatusOK {
+		// DoodStream answers an invalid key with HTTP 400 plus a JSON verdict
+		// rather than a 200 body. Classify that verdict instead of leaving the
+		// key "unknown" forever.
+		if status == http.StatusBadRequest {
+			var r doodStreamServerResponse
+			if json.Unmarshal(body, &r) == nil {
+				if msg := strings.TrimSpace(r.Msg); msg != "" {
+					probeErr := fmt.Errorf("DoodStream: %s", msg)
+					if isDoodStreamQuotaError(probeErr) {
+						return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+					}
+					if isDoodStreamAuthError(probeErr) {
+						return ProbeResult{Rejected: true, Message: msg}
+					}
+					return ProbeResult{Message: msg}
+				}
+			}
+		}
+		return ProbeResult{Message: fmt.Sprintf("HTTP %d: %s", status, snippet(body))}
+	}
+	var r doodStreamServerResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return ProbeResult{Message: fmt.Sprintf("decode: %v", err)}
+	}
+	if int(r.Status) == 200 && r.uploadServer() != "" {
+		return ProbeResult{OK: true}
+	}
+	msg := strings.TrimSpace(r.Msg)
+	if msg == "" {
+		msg = snippet(body)
+	}
+	probeErr := fmt.Errorf("DoodStream: %s", msg)
+	if isDoodStreamQuotaError(probeErr) {
+		return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+	}
+	if isDoodStreamAuthError(probeErr) {
+		return ProbeResult{Rejected: true, Message: msg}
+	}
+	return ProbeResult{Message: msg}
+}
+
 // ProbeStreamtape checks one Streamtape login/key pair via GET /file/ul — the
 // same call the upload flow makes to obtain an upload URL.
 func ProbeStreamtape(login, key string) ProbeResult {

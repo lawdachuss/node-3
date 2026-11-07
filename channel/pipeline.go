@@ -402,6 +402,8 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.VidaraKey,
+		cfg.LuluStreamKey,
+		cfg.DoodStreamKey,
 		ch,
 	)
 
@@ -457,8 +459,8 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 				}
 			}
 		}
-	ch.Info("upload: %d/%d hosts already have this file — uploading to %d remaining",
-		len(completedHosts), len(allHosts), len(hostsToTry))
+		ch.Info("upload: %d/%d hosts already have this file — uploading to %d remaining",
+			len(completedHosts), len(allHosts), len(hostsToTry))
 	}
 
 	var results []uploader.UploadResult
@@ -571,54 +573,54 @@ func (p *Pipeline) stageUploadVideos(ch *Channel) error {
 		var recordingID string
 		var recordingIDOnce sync.Once
 		attemptResults := upl.UploadSelectedWithCallback(filePath, hostsToTry, func(host, url string) {
-		// Persist the journal entry FIRST — while the upload result and its
-		// download link are in hand — then save the link to the recordings
-		// row.  If the runner dies between the two, or the DB save exhausts
-		// its retries, the journal carries the link so ReconcileMissingUploadLinks
-		// can restore it on the next boot.  Previously the journal was written
-		// only for the empty-recording-ID path (and wholesale after all hosts),
-		// so a crash in between left a host "done" in the journal with its link
-		// permanently unpersisted.
-		if jErr := server.SaveJournalEntry(p.FileHash, filename, host, "success", url, 0, ""); jErr != nil {
-			ch.Warn("upload: could not save journal entry for %s/%s: %v", host, filename, jErr)
-		}
-		// Save the upload link to Supabase the instant a host succeeds —
-		// don't wait for all hosts.  If the runner VM dies before other
-		// hosts finish, this link survives.
-		recordingIDOnce.Do(func() {
-			var lookupErr error
-			recordingID, lookupErr = server.GetRecordingID(filename)
-			if lookupErr != nil {
-				// Recording row doesn't exist yet (SaveRecordingBasics failed
-				// or was skipped).  Create it now so the upload link can be
-				// persisted immediately instead of waiting for stageSaveMetadata.
-				ch.Warn("upload: recording row missing for %s, creating basics", filename)
-				if bErr := server.SaveRecordingBasics(
-					extractUsernameFromFilename(filename),
-					filename,
-					time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-					"", nil, 0, "", "", "", 0, 0, 0,
-				); bErr != nil {
-					ch.Warn("upload: could not create recording basics for %s: %v", filename, bErr)
-					return
-				}
+			// Persist the journal entry FIRST — while the upload result and its
+			// download link are in hand — then save the link to the recordings
+			// row.  If the runner dies between the two, or the DB save exhausts
+			// its retries, the journal carries the link so ReconcileMissingUploadLinks
+			// can restore it on the next boot.  Previously the journal was written
+			// only for the empty-recording-ID path (and wholesale after all hosts),
+			// so a crash in between left a host "done" in the journal with its link
+			// permanently unpersisted.
+			if jErr := server.SaveJournalEntry(p.FileHash, filename, host, "success", url, 0, ""); jErr != nil {
+				ch.Warn("upload: could not save journal entry for %s/%s: %v", host, filename, jErr)
+			}
+			// Save the upload link to Supabase the instant a host succeeds —
+			// don't wait for all hosts.  If the runner VM dies before other
+			// hosts finish, this link survives.
+			recordingIDOnce.Do(func() {
+				var lookupErr error
 				recordingID, lookupErr = server.GetRecordingID(filename)
 				if lookupErr != nil {
-					ch.Warn("upload: could not find recording ID for %s after creating basics: %v", filename, lookupErr)
+					// Recording row doesn't exist yet (SaveRecordingBasics failed
+					// or was skipped).  Create it now so the upload link can be
+					// persisted immediately instead of waiting for stageSaveMetadata.
+					ch.Warn("upload: recording row missing for %s, creating basics", filename)
+					if bErr := server.SaveRecordingBasics(
+						extractUsernameFromFilename(filename),
+						filename,
+						time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+						"", nil, 0, "", "", "", 0, 0, 0,
+					); bErr != nil {
+						ch.Warn("upload: could not create recording basics for %s: %v", filename, bErr)
+						return
+					}
+					recordingID, lookupErr = server.GetRecordingID(filename)
+					if lookupErr != nil {
+						ch.Warn("upload: could not find recording ID for %s after creating basics: %v", filename, lookupErr)
+					}
 				}
+			})
+			if recordingID == "" {
+				// Journal entry above preserves the link; stageSaveMetadata
+				// will reconcile later.  This should be extremely rare.
+				return
+			}
+			if saveErr := server.SaveUploadLinkByIDWithFilename(recordingID, host, url, filename); saveErr != nil {
+				ch.Warn("upload: could not save link from %s for %s immediately: %v", host, filename, saveErr)
+			} else {
+				ch.Info("upload: saved link from %s for %s immediately", host, filename)
 			}
 		})
-		if recordingID == "" {
-			// Journal entry above preserves the link; stageSaveMetadata
-			// will reconcile later.  This should be extremely rare.
-			return
-		}
-		if saveErr := server.SaveUploadLinkByIDWithFilename(recordingID, host, url, filename); saveErr != nil {
-			ch.Warn("upload: could not save link from %s for %s immediately: %v", host, filename, saveErr)
-		} else {
-			ch.Info("upload: saved link from %s for %s immediately", host, filename)
-		}
-	})
 		results = append(results, attemptResults...)
 
 		// Save journal entries for each result
@@ -1107,17 +1109,17 @@ func (pq *PipelineQueue) QueuedEntries() []entity.PendingEntry {
 	pq.mu.Lock()
 	defer pq.mu.Unlock()
 	entries := make([]entity.PendingEntry, 0, len(pq.pipelines))
-for _, p := range pq.pipelines {
-			entries = append(entries, entity.PendingEntry{
-				Channel:  p.Username,
-				Filename: p.Filename,
-				Stage:    p.CurrentStage.String(),
-				Failed:   p.Failed,
-				Error:    p.LastError,
-				Size:     p.FileSize,
-			})
-		}
-		return entries
+	for _, p := range pq.pipelines {
+		entries = append(entries, entity.PendingEntry{
+			Channel:  p.Username,
+			Filename: p.Filename,
+			Stage:    p.CurrentStage.String(),
+			Failed:   p.Failed,
+			Error:    p.LastError,
+			Size:     p.FileSize,
+		})
+	}
+	return entries
 }
 
 // HistoryEntries returns the recent pipeline history.

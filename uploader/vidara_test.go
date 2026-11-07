@@ -30,10 +30,10 @@ func TestVidaraFileCode(t *testing.T) {
 		{"https://vidara.so/v/", ""},
 		{"https://vidara.so/play", ""},     // future route — structural, not a code
 		{"https://vidara.so/download", ""}, // long structural segment
-		{"video.mp4", ""},       // leaked filename — not a code
-		{"AbC123xY.v1", ""},     // extension in the segment — not a code
-		{"has space 123", ""},   // whitespace — not a code
-		{"ab", ""},              // too short to be a code
+		{"video.mp4", ""},                  // leaked filename — not a code
+		{"AbC123xY.v1", ""},                // extension in the segment — not a code
+		{"has space 123", ""},              // whitespace — not a code
+		{"ab", ""},                         // too short to be a code
 	}
 	for _, c := range cases {
 		if got := vidaraFileCode(c.in); got != c.want {

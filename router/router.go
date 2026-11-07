@@ -119,6 +119,7 @@ func SetupViews(r *gin.Engine) {
 	// ── Upload keys API (central credential store + live health) ─────────
 	r.GET("/api/upload_keys", GetUploadKeys)
 	r.POST("/api/upload_keys/add", AddUploadKey)
+	r.POST("/api/upload_keys/edit", EditUploadKey)
 	r.POST("/api/upload_keys/remove", RemoveUploadKey)
 	r.POST("/api/upload_keys/probe", ProbeUploadKeys)
 
@@ -176,7 +177,7 @@ func templateFuncs() template.FuncMap {
 			return fmt.Sprintf("%.1f MB", float64(s)/1024/1024)
 		},
 		"divBytes": func(b int64) float64 { return float64(b) / 1024 / 1024 },
-		"add": func(a, b int) int { return a + b },
+		"add":      func(a, b int) int { return a + b },
 		// timefmt renders a timestamp for the admin tables; a zero time (key
 		// never checked) reads as an em dash instead of year 1.
 		"timefmt": func(t time.Time) string {

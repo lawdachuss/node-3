@@ -64,12 +64,14 @@ type Set struct {
 	Streamtape []Cred `json:"streamtape,omitempty"`
 	Mixdrop    []Cred `json:"mixdrop,omitempty"`
 	Vidara     []Cred `json:"vidara,omitempty"`
+	LuluStream []Cred `json:"lulustream,omitempty"`
+	DoodStream []Cred `json:"doodstream,omitempty"`
 	// Image / sprite / preview hosts
-	Catbox     []Cred `json:"catbox,omitempty"`
-	ImgBB      []Cred `json:"imgbb,omitempty"`
-	FreeImage  []Cred `json:"freeimage,omitempty"`
-	ImgPile    []Cred `json:"imgpile,omitempty"`
-	ImgChest   []Cred `json:"imgchest,omitempty"`
+	Catbox    []Cred `json:"catbox,omitempty"`
+	ImgBB     []Cred `json:"imgbb,omitempty"`
+	FreeImage []Cred `json:"freeimage,omitempty"`
+	ImgPile   []Cred `json:"imgpile,omitempty"`
+	ImgChest  []Cred `json:"imgchest,omitempty"`
 }
 
 // KeyStatus is one credential's health as last determined by the prober or
@@ -134,6 +136,16 @@ var hostSpecs = []hostSpec{
 		name: "Vidara", label: "Vidara", probeable: true, fields: []string{"key"},
 		get: func(s *Set) []Cred { return s.Vidara },
 		set: func(s *Set, v []Cred) { s.Vidara = v },
+	},
+	{
+		name: "LuluStream", label: "LuluStream", probeable: true, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.LuluStream },
+		set: func(s *Set, v []Cred) { s.LuluStream = v },
+	},
+	{
+		name: "DoodStream", label: "DoodStream", probeable: true, fields: []string{"key"},
+		get: func(s *Set) []Cred { return s.DoodStream },
+		set: func(s *Set, v []Cred) { s.DoodStream = v },
 	},
 	{
 		name: "Catbox", label: "Catbox", probeable: false, fields: []string{"key"},
@@ -267,6 +279,8 @@ func cloneSet(s *Set) *Set {
 	cp.Streamtape = append([]Cred(nil), s.Streamtape...)
 	cp.Mixdrop = append([]Cred(nil), s.Mixdrop...)
 	cp.Vidara = append([]Cred(nil), s.Vidara...)
+	cp.LuluStream = append([]Cred(nil), s.LuluStream...)
+	cp.DoodStream = append([]Cred(nil), s.DoodStream...)
 	return &cp
 }
 
@@ -307,6 +321,8 @@ func applyToConfig(s *Set) {
 	}
 	overlay(&server.Config.VoeSXAPIKey, "VOESX_API_KEY", joinKeys(s.VoeSX))
 	overlay(&server.Config.VidaraKey, "VIDARA_KEY", joinKeys(s.Vidara))
+	overlay(&server.Config.LuluStreamKey, "LULUSTREAM_KEY", joinKeys(s.LuluStream))
+	overlay(&server.Config.DoodStreamKey, "DOODSTREAM_API_KEY", joinKeys(s.DoodStream))
 	// Image / sprite / preview hosts: keep env vars in sync so the uploaders
 	// (which read os.Getenv at construction time) pick up central edits.
 	// server.Config has no image-host fields, so the env overlay below is what
@@ -612,6 +628,36 @@ func commit(s *Set, changes []change) ([]Verdict, error) {
 	return verdicts, nil
 }
 
+// normalizeAndValidate trims a credential's fields and verifies that every
+// field the host requires is present.
+func normalizeAndValidate(h hostSpec, cred Cred) (Cred, error) {
+	cred.Key = strings.TrimSpace(cred.Key)
+	cred.Login = strings.TrimSpace(cred.Login)
+	cred.Email = strings.TrimSpace(cred.Email)
+	cred.Token = strings.TrimSpace(cred.Token)
+	for _, f := range h.fields {
+		switch f {
+		case "key":
+			if cred.Key == "" {
+				return Cred{}, fmt.Errorf("%s: key is required", h.label)
+			}
+		case "login":
+			if cred.Login == "" {
+				return Cred{}, fmt.Errorf("%s: login is required", h.label)
+			}
+		case "email":
+			if cred.Email == "" {
+				return Cred{}, fmt.Errorf("%s: email is required", h.label)
+			}
+		case "token":
+			if cred.Token == "" {
+				return Cred{}, fmt.Errorf("%s: token is required", h.label)
+			}
+		}
+	}
+	return cred, nil
+}
+
 // Add sets a host's central credential list to the given credential — the new
 // key REPLACES whatever that host had, it does not append. The admin page's
 // "＋ Add" is how an operator rotates a key (they add a new one precisely
@@ -629,29 +675,10 @@ func Add(host string, cred Cred) (Verdict, error) {
 	if !ok {
 		return Verdict{}, fmt.Errorf("unknown upload host %q", host)
 	}
-	for _, f := range h.fields {
-		switch f {
-		case "key":
-			if strings.TrimSpace(cred.Key) == "" {
-				return Verdict{}, fmt.Errorf("%s: key is required", h.label)
-			}
-		case "login":
-			if strings.TrimSpace(cred.Login) == "" {
-				return Verdict{}, fmt.Errorf("%s: login is required", h.label)
-			}
-		case "email":
-			if strings.TrimSpace(cred.Email) == "" {
-				return Verdict{}, fmt.Errorf("%s: email is required", h.label)
-			}
-		case "token":
-			if strings.TrimSpace(cred.Token) == "" {
-				return Verdict{}, fmt.Errorf("%s: token is required", h.label)
-			}
-		}
+	cred, err := normalizeAndValidate(h, cred)
+	if err != nil {
+		return Verdict{}, err
 	}
-	cred.Key = strings.TrimSpace(cred.Key)
-	cred.Login = strings.TrimSpace(cred.Login)
-	cred.Email = strings.TrimSpace(cred.Email)
 
 	s, err := Load()
 	if err != nil {
@@ -689,6 +716,71 @@ func Add(host string, cred Cred) (Verdict, error) {
 		fmt.Printf("[uploadkeys] %s: added %s — replaced %d old key(s) fleet-wide\n",
 			h.label, display(secretOf(h, cred)), replaced)
 	}
+	return verdicts[0], nil
+}
+
+// Edit replaces ONE credential of a host in place, preserving the host's other
+// credentials. Unlike Add (which intentionally replaces the whole host list —
+// the admin page's "+ Add" is a rotation), Edit is for correcting a single
+// account in a multi-key pool: the edited row keeps its position and every
+// other key stays configured.
+//
+// The replacement is verified with a real upload round-trip in this request,
+// and the old credential's status row is dropped when the secret changed, so a
+// corrected key can never inherit the rejected key's verdict.
+func Edit(host, fingerprint string, cred Cred) (Verdict, error) {
+	h, ok := specByName(host)
+	if !ok {
+		return Verdict{}, fmt.Errorf("unknown upload host %q", host)
+	}
+	cred, err := normalizeAndValidate(h, cred)
+	if err != nil {
+		return Verdict{}, err
+	}
+
+	s, err := Load()
+	if err != nil {
+		return Verdict{}, fmt.Errorf("load central keys: %w", err)
+	}
+	creds := h.get(s)
+	idx := -1
+	var old Cred
+	for i, c := range creds {
+		if Fingerprint(secretOf(h, c)) == fingerprint {
+			idx = i
+			old = c
+			break
+		}
+	}
+	if idx < 0 {
+		return Verdict{}, fmt.Errorf("%s: no credential matching fingerprint %s", h.label, fingerprint)
+	}
+
+	newFP := Fingerprint(secretOf(h, cred))
+	oldFP := Fingerprint(secretOf(h, old))
+	for i, c := range creds {
+		if i == idx {
+			continue
+		}
+		if Fingerprint(secretOf(h, c)) == newFP {
+			return Verdict{}, fmt.Errorf("%s: this credential is already added", h.label)
+		}
+	}
+
+	updated := append([]Cred(nil), creds...)
+	updated[idx] = cred
+	h.set(s, updated)
+
+	ch := change{host: h, fresh: []Cred{cred}}
+	if oldFP != newFP {
+		ch.stale = []string{statusKeyOf(h.name, oldFP)}
+	}
+	verdicts, err := commit(s, []change{ch})
+	if err != nil {
+		return Verdict{}, err
+	}
+	fmt.Printf("[uploadkeys] %s: edited %s — %d other key(s) preserved fleet-wide\n",
+		h.label, display(secretOf(h, cred)), len(creds)-1)
 	return verdicts[0], nil
 }
 
@@ -737,8 +829,8 @@ func Remove(host, fingerprint string) error {
 // round-trip) and their verdicts returned for the save response; the status
 // rows of replaced credentials are dropped, so a rotation can never inherit
 // the previous key's verdict.
-func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey string) []Verdict {
-	if strings.TrimSpace(voeSXKey+stLogin+stKey+mdEmail+mdToken+vidaraKey) == "" {
+func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey, luluStreamKey, doodStreamKey string) []Verdict {
+	if strings.TrimSpace(voeSXKey+stLogin+stKey+mdEmail+mdToken+vidaraKey+luluStreamKey+doodStreamKey) == "" {
 		return nil
 	}
 	s, err := Load()
@@ -797,6 +889,12 @@ func SyncLegacyForm(voeSXKey, stLogin, stKey, mdEmail, mdToken, vidaraKey string
 	}
 	if h, ok := specByName("Vidara"); ok {
 		replace(h, credsFromCSV(vidaraKey))
+	}
+	if h, ok := specByName("LuluStream"); ok {
+		replace(h, credsFromCSV(luluStreamKey))
+	}
+	if h, ok := specByName("DoodStream"); ok {
+		replace(h, credsFromCSV(doodStreamKey))
 	}
 	if h, ok := specByName("Streamtape"); ok {
 		logins := strings.Split(stLogin, ",")

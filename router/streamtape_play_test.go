@@ -6,16 +6,16 @@ import (
 
 func TestSTPlayAllowedHost(t *testing.T) {
 	cases := map[string]bool{
-		"tapecontent.net":                  true,
-		"861134100.tapecontent.net":        true,
-		"foo.tapecontent.net":              true,
-		"api.streamtape.com":               false,
-		"streamtape.com":                   false,
-		"tapecontent.net.evil.com":         false,
-		"notapecontent.net":                false,
-		"":                                 false,
-		"861134100.tapecontent.net:443":    true,
-		"861134100.TAPECONTENT.NET":        true,
+		"tapecontent.net":               true,
+		"861134100.tapecontent.net":     true,
+		"foo.tapecontent.net":           true,
+		"api.streamtape.com":            false,
+		"streamtape.com":                false,
+		"tapecontent.net.evil.com":      false,
+		"notapecontent.net":             false,
+		"":                              false,
+		"861134100.tapecontent.net:443": true,
+		"861134100.TAPECONTENT.NET":     true,
 	}
 	for host, want := range cases {
 		if got := stPlayAllowedHost(host); got != want {
@@ -45,13 +45,13 @@ func TestStreamtapeVideoURLRelay(t *testing.T) {
 
 func TestIsStreamtapeLink(t *testing.T) {
 	cases := map[string]bool{
-		"https://streamtape.com/e/AbCdEf1234/":             true,
-		"https://streamtape.com/v/AbCdEf1234":              true,
-		"STREAMTAPE.COM/e/AbCdEf1234":                      true,
-		"https://voe.sx/e/abc":                             false,
-		"https://mixdrop.ag/e/abc":                         false,
-		"https://example.com/abc":                          false,
-		"":                      false,
+		"https://streamtape.com/e/AbCdEf1234/": true,
+		"https://streamtape.com/v/AbCdEf1234":  true,
+		"STREAMTAPE.COM/e/AbCdEf1234":          true,
+		"https://voe.sx/e/abc":                 false,
+		"https://mixdrop.ag/e/abc":             false,
+		"https://example.com/abc":              false,
+		"":                                     false,
 	}
 	for u, want := range cases {
 		if got := isStreamtapeLink(u); got != want {

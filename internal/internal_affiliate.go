@@ -50,8 +50,8 @@ type AffiliateAPIResult struct {
 const affiliateUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
 
 var (
-	affiliateCache   = &AffiliateAPIResult{ttl: 30 * time.Second}
-	affiliateClient  = &http.Client{
+	affiliateCache  = &AffiliateAPIResult{ttl: 30 * time.Second}
+	affiliateClient = &http.Client{
 		Timeout:   20 * time.Second,
 		Transport: sharedTransport(),
 	}

@@ -32,7 +32,7 @@ import (
 const stPlayTTL = 2 * time.Minute
 
 type stPlayEntry struct {
-	url     string
+	url      string
 	resolved time.Time
 }
 

@@ -70,4 +70,3 @@ func TestPipelineQueuePendingBytes(t *testing.T) {
 		t.Fatalf("PendingBytes = %d, want %d", got, 1000+2000+4000+8000)
 	}
 }
-

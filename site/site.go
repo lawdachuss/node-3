@@ -24,10 +24,10 @@ type StreamInfo struct {
 	Tags             []string
 	NumUsers         int
 	Gender           string
-	LiveThumbURL     string   // live-updating thumbnail URL; empty = use site default
-	SummaryCardImage string   // static profile card image; persisted even when offline
-	CDNReferer       string   // Referer/Origin to use for CDN media requests; empty defaults to Chaturbate
-	MouflonPDKey     string   // Stripchat MOUFLON v2 decryption key; empty if not applicable
+	LiveThumbURL     string // live-updating thumbnail URL; empty = use site default
+	SummaryCardImage string // static profile card image; persisted even when offline
+	CDNReferer       string // Referer/Origin to use for CDN media requests; empty defaults to Chaturbate
+	MouflonPDKey     string // Stripchat MOUFLON v2 decryption key; empty if not applicable
 }
 
 // Site is the interface that each live cam site must implement.

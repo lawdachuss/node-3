@@ -18,9 +18,12 @@ import (
 // silent no-op on nodes 1/4/8/12/15 because of this).
 //
 // GET  <table>?select=id&<field>=lt.<cutoff>&order=<field>.asc&limit=N
-//      → the first N remaining old ids.
+//
+//	→ the first N remaining old ids.
+//
 // DELETE <table>?id=in.(a,b,c)
-//      → 414 when the URI is over the limit, otherwise removes those ids.
+//
+//	→ 414 when the URI is over the limit, otherwise removes those ids.
 type fakeRetentionSupabase struct {
 	mu        sync.Mutex
 	rows      []string // remaining "old" row ids

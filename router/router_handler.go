@@ -133,13 +133,13 @@ type AdminData struct {
 	ProxyStatus *proxyStatus
 
 	// Distributed shards
-	Nodes           []database.Node
-	Assignments     []database.ChannelAssignment
-	OnlineNodes     int
-	DrainingNodes   int
-	TotalNodeLoad   int
-	PoolMode        string
-	MyNodeID        string
+	Nodes         []database.Node
+	Assignments   []database.ChannelAssignment
+	OnlineNodes   int
+	DrainingNodes int
+	TotalNodeLoad int
+	PoolMode      string
+	MyNodeID      string
 
 	// Recording reconciliation: on-disk recordings vs Supabase metadata, to
 	// surface recordings that were produced locally but never reached the cloud.
@@ -241,16 +241,16 @@ func loadHostBackoffs() []HostBackoffView {
 // numbers are for this node only. The meaningful loss signal is Stuck, not the
 // raw local-vs-global delta.
 type RecordingReconciliation struct {
-	LocalFiles      int    // completed video files currently on this node's disk
-	LocalBytesHuman string // human-readable total size of LocalFiles
-	SupabaseTotal   int    // GLOBAL recording rows in Supabase (all nodes)
-	HasSupabase     bool   // true when the count query succeeded
-	Orphans         int    // on-disk files not provably uploaded (no metadata row, or no upload link)
+	LocalFiles       int    // completed video files currently on this node's disk
+	LocalBytesHuman  string // human-readable total size of LocalFiles
+	SupabaseTotal    int    // GLOBAL recording rows in Supabase (all nodes)
+	HasSupabase      bool   // true when the count query succeeded
+	Orphans          int    // on-disk files not provably uploaded (no metadata row, or no upload link)
 	OrphanBytesHuman string
-	InFlight        int    // files currently queued/active in the upload pipeline
+	InFlight         int // files currently queued/active in the upload pipeline
 	// Stuck = orphan files not in the upload pipeline AND older than the
 	// stuck threshold — the real "permanently lost" candidates.
-	Stuck          int
+	Stuck           int
 	StuckBytesHuman string
 	// ZeroByteStuck is the subset of Stuck that never received a single byte:
 	// the channel opened its output file and no segment ever arrived.  Tracked
@@ -534,9 +534,9 @@ func AdminPage(c *gin.Context) {
 		Orphans:  orphans,
 		Recon:    computeRecordingReconciliation(uploads),
 
-		SessionActive:    sessionActive,
-		SessionRemaining: sessionRemaining,
-		SessionDuration:  sessionDuration,
+		SessionActive:     sessionActive,
+		SessionRemaining:  sessionRemaining,
+		SessionDuration:   sessionDuration,
 		SessionProcessing: sessionProcessing,
 		QueueBytes:        queueBytes,
 
@@ -674,6 +674,8 @@ type UpdateConfigRequest struct {
 	MixdropEmail    string `json:"mixdrop_email" form:"mixdrop_email"`
 	MixdropToken    string `json:"mixdrop_token" form:"mixdrop_token"`
 	VidaraKey       string `json:"vidara_key" form:"vidara_key"`
+	LuluStreamKey   string `json:"lulustream_key" form:"lulustream_key"`
+	DoodStreamKey   string `json:"doodstream_key" form:"doodstream_key"`
 	StripchatPDKey  string `json:"stripchat_pdkey" form:"stripchat_pdkey"`
 	AffiliateWM     string `json:"affiliate_wm" form:"affiliate_wm"`
 }
@@ -750,16 +752,17 @@ func UpdateConfig(c *gin.Context) {
 		server.ConfigMu.Unlock()
 	}
 
-	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop / Vidara).
-	// SyncLegacyForm saves the edit and verifies every new/rotated credential
-	// in this request, so the verdict can be returned to the caller below.
+	// Update uploader credentials (VOE.sx / Streamtape / Mixdrop / Vidara /
+	// LuluStream / DoodStream). SyncLegacyForm saves the edit and verifies
+	// every new/rotated credential in this request, so the verdict can be
+	// returned to the caller below.
 	var keyVerdicts []uploadkeys.Verdict
-	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" {
-		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey)
+	if req.VoeSXAPIKey != "" || req.StreamtapeLogin != "" || req.StreamtapeKey != "" || req.MixdropEmail != "" || req.MixdropToken != "" || req.VidaraKey != "" || req.LuluStreamKey != "" || req.DoodStreamKey != "" {
+		server.UpdateUploaderCredentials(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.LuluStreamKey, req.DoodStreamKey)
 		// Mirror the submitted credentials into the central upload-key store
 		// so this legacy rotation is fleet-wide and is not overwritten by the
 		// central set on the next sync.
-		keyVerdicts = uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey)
+		keyVerdicts = uploadkeys.SyncLegacyForm(req.VoeSXAPIKey, req.StreamtapeLogin, req.StreamtapeKey, req.MixdropEmail, req.MixdropToken, req.VidaraKey, req.LuluStreamKey, req.DoodStreamKey)
 	}
 
 	if err := server.SaveSettings(); err != nil {
@@ -786,6 +789,18 @@ type UploadKeyAddRequest struct {
 	Login string `json:"login" form:"login"`
 	Email string `json:"email" form:"email"`
 	Token string `json:"token" form:"token"`
+}
+
+// UploadKeyEditRequest is the body for editing one existing credential in
+// place. Fingerprint identifies the row; the remaining fields are the
+// replacement credential.
+type UploadKeyEditRequest struct {
+	Host        string `json:"host" form:"host"`
+	Fingerprint string `json:"fingerprint" form:"fingerprint"`
+	Key         string `json:"key" form:"key"`
+	Login       string `json:"login" form:"login"`
+	Email       string `json:"email" form:"email"`
+	Token       string `json:"token" form:"token"`
 }
 
 // UploadKeyRemoveRequest is the body for removing one credential.
@@ -834,6 +849,29 @@ func AddUploadKey(c *gin.Context) {
 	// saved, so a failing check reports the host's own error on the row rather
 	// than rejecting the save.
 	verdict, err := uploadkeys.Add(req.Host, cred)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "status": verdict, "hosts": uploadkeys.Snapshot()})
+}
+
+// EditUploadKey replaces one credential in a host's central list, preserving
+// the host's other keys (unlike Add, which replaces the whole list). The
+// replacement is verified with a real upload round-trip before responding.
+func EditUploadKey(c *gin.Context) {
+	var req UploadKeyEditRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bind: %v", err)})
+		return
+	}
+	cred := uploadkeys.Cred{
+		Key:   req.Key,
+		Login: req.Login,
+		Email: req.Email,
+		Token: req.Token,
+	}
+	verdict, err := uploadkeys.Edit(req.Host, req.Fingerprint, cred)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1350,6 +1388,21 @@ func embedURLForHostLink(host, link string) string {
 		}
 		return link
 	}
+	if strings.Contains(normalizedHost, "lulustream") || strings.Contains(normalizedLink, "lulustream.com/") {
+		if code := extractFileCode(link); code != "" {
+			return "https://lulustream.com/e/" + code
+		}
+		return link
+	}
+	if strings.Contains(normalizedHost, "doodstream") || strings.Contains(normalizedHost, "dood") || strings.Contains(normalizedLink, "dood.to/") || strings.Contains(normalizedLink, "doodstream.com/") {
+		// DoodStream rotates its public domains; keep the canonical embed URL
+		// derived from the file code so a retired mirror domain cannot poison
+		// the archive.
+		if code := extractFileCode(link); code != "" {
+			return "https://dood.to/e/" + code
+		}
+		return link
+	}
 	if strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/") {
 		return ""
 	}
@@ -1386,6 +1439,16 @@ func videoURLForHostLink(host, link string) string {
 	case strings.Contains(normalizedHost, "vidara") || strings.Contains(normalizedLink, "vidara.so/"):
 		if code := extractFileCode(link); code != "" {
 			return "https://vidara.so/e/" + code
+		}
+		return link
+	case strings.Contains(normalizedHost, "lulustream") || strings.Contains(normalizedLink, "lulustream.com/"):
+		if code := extractFileCode(link); code != "" {
+			return "https://lulustream.com/e/" + code
+		}
+		return link
+	case strings.Contains(normalizedHost, "doodstream") || strings.Contains(normalizedHost, "dood") || strings.Contains(normalizedLink, "dood.to/") || strings.Contains(normalizedLink, "doodstream.com/"):
+		if code := extractFileCode(link); code != "" {
+			return "https://dood.to/e/" + code
 		}
 		return link
 	case strings.Contains(normalizedHost, "gofile") || strings.Contains(normalizedLink, "gofile.io/"):
@@ -1431,9 +1494,16 @@ func GetTunnel(c *gin.Context) {
 }
 
 func extractFileCode(link string) string {
-	parts := strings.Split(strings.TrimRight(link, "/"), "/")
+	link = strings.TrimSpace(link)
+	link = strings.TrimRight(link, "/")
+	if i := strings.IndexAny(link, "?#"); i >= 0 {
+		link = link[:i]
+	}
+	parts := strings.Split(link, "/")
 	if len(parts) > 0 {
-		return parts[len(parts)-1]
+		// LuluStream view links end in "<code>.html"; the embed form wants
+		// just the code.
+		return strings.TrimSuffix(parts[len(parts)-1], ".html")
 	}
 	return ""
 }

@@ -29,6 +29,8 @@ type persistedSettings struct {
 	MixdropEmail    string `json:"mixdrop_email,omitempty"`
 	MixdropToken    string `json:"mixdrop_token,omitempty"`
 	VidaraKey       string `json:"vidara_key,omitempty"`
+	LuluStreamKey   string `json:"lulustream_key,omitempty"`
+	DoodStreamKey   string `json:"doodstream_key,omitempty"`
 	StripchatPDKey  string `json:"stripchat_pdkey,omitempty"`
 	AffiliateWM     string `json:"affiliate_wm,omitempty"`
 }
@@ -58,6 +60,8 @@ func SaveSettings() error {
 		MixdropEmail:    validPersistedValue(Config.MixdropEmail),
 		MixdropToken:    validPersistedValue(Config.MixdropToken),
 		VidaraKey:       validPersistedValue(Config.VidaraKey),
+		LuluStreamKey:   validPersistedValue(Config.LuluStreamKey),
+		DoodStreamKey:   validPersistedValue(Config.DoodStreamKey),
 		StripchatPDKey:  validPersistedValue(Config.StripchatPDKey),
 		AffiliateWM:     validPersistedValue(Config.AffiliateWM),
 	}
@@ -106,6 +110,8 @@ func LoadSettings() error {
 		Config.MixdropEmail = applyUploadCredential(Config.MixdropEmail, s.MixdropEmail, "mixdrop_email")
 		Config.MixdropToken = applyUploadCredential(Config.MixdropToken, s.MixdropToken, "mixdrop_token")
 		Config.VidaraKey = applyUploadCredential(Config.VidaraKey, s.VidaraKey, "vidara_key")
+		Config.LuluStreamKey = applyUploadCredential(Config.LuluStreamKey, s.LuluStreamKey, "lulustream_key")
+		Config.DoodStreamKey = applyUploadCredential(Config.DoodStreamKey, s.DoodStreamKey, "doodstream_key")
 		if v := validPersistedValue(s.StripchatPDKey); v != "" {
 			Config.StripchatPDKey = v
 		}
@@ -143,6 +149,8 @@ func LoadSettings() error {
 		s.MixdropEmail = ""
 		s.MixdropToken = ""
 		s.VidaraKey = ""
+		s.LuluStreamKey = ""
+		s.DoodStreamKey = ""
 		s.StripchatPDKey = ""
 		s.AffiliateWM = ""
 	}
@@ -353,7 +361,7 @@ func ApplyCentralSessionDuration() {
 }
 
 // UpdateUploaderCredentials updates upload service credentials and protects concurrent access with a mutex.
-func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey string) {
+func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixdropEmail, mixdropToken, vidaraKey, luluStreamKey, doodStreamKey string) {
 	// Ignore placeholder dash values so the web UI can't wipe real .env keys.
 	voeSXAPIKey = validPersistedValue(voeSXAPIKey)
 	streamtapeLogin = validPersistedValue(streamtapeLogin)
@@ -361,6 +369,8 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 	mixdropEmail = validPersistedValue(mixdropEmail)
 	mixdropToken = validPersistedValue(mixdropToken)
 	vidaraKey = validPersistedValue(vidaraKey)
+	luluStreamKey = validPersistedValue(luluStreamKey)
+	doodStreamKey = validPersistedValue(doodStreamKey)
 
 	ConfigMu.Lock()
 	if voeSXAPIKey != "" {
@@ -380,6 +390,12 @@ func UpdateUploaderCredentials(voeSXAPIKey, streamtapeLogin, streamtapeKey, mixd
 	}
 	if vidaraKey != "" {
 		Config.VidaraKey = vidaraKey
+	}
+	if luluStreamKey != "" {
+		Config.LuluStreamKey = luluStreamKey
+	}
+	if doodStreamKey != "" {
+		Config.DoodStreamKey = doodStreamKey
 	}
 	ConfigMu.Unlock()
 }

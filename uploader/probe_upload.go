@@ -121,6 +121,11 @@ func deleteProbeUpload(host, secret, login, link string) {
 		endpoint = fmt.Sprintf("%s/file/delete?key=%s&del_code=%s", voeSXAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
 	case "Vidara":
 		endpoint = fmt.Sprintf("%s/video/delete?api_key=%s&filecode=%s", vidaraAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
+	case "LuluStream":
+		code = strings.TrimSuffix(code, ".html")
+		endpoint = fmt.Sprintf("%s/file/delete?key=%s&file_code=%s", luluStreamAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
+	case "DoodStream":
+		endpoint = fmt.Sprintf("%s/file/delete?key=%s&file_code=%s", doodStreamAPIBase, url.QueryEscape(secret), url.QueryEscape(code))
 	case "Streamtape":
 		endpoint = fmt.Sprintf("%s/file/delete?login=%s&key=%s&file=%s", streamtapeAPIBase, url.QueryEscape(login), url.QueryEscape(secret), url.QueryEscape(code))
 	default:
@@ -195,6 +200,66 @@ func VerifyVidara(apiKey string) ProbeResult {
 		}
 	}
 	deleteProbeUpload("Vidara", apiKey, "", link)
+	return ProbeResult{OK: true, Message: "upload verified"}
+}
+
+// VerifyLuluStream is the LuluStream equivalent of VerifyVoeSX: the cheap
+// account check must pass, then the embedded clip is POSTed to the real upload
+// node and deleted again.
+func VerifyLuluStream(apiKey string) ProbeResult {
+	if res := ProbeLuluStream(apiKey); !res.OK || res.Rejected || res.Quota {
+		return res
+	}
+	file, cleanup, err := writeProbeVideo()
+	if err != nil {
+		return ProbeResult{Message: err.Error()}
+	}
+	defer cleanup()
+
+	u := &LuluStreamUploader{client: probeUploadClient}
+	link, err := u.uploadFile(file, apiKey, nil)
+	if err != nil {
+		msg := probeErrText(err)
+		switch {
+		case isLuluStreamQuotaError(err):
+			return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+		case isLuluStreamAuthError(err) && !looksLikeBlockPageText(msg):
+			return ProbeResult{Rejected: true, Message: msg}
+		default:
+			return ProbeResult{Message: msg}
+		}
+	}
+	deleteProbeUpload("LuluStream", apiKey, "", link)
+	return ProbeResult{OK: true, Message: "upload verified"}
+}
+
+// VerifyDoodStream is the DoodStream equivalent of VerifyVoeSX: the cheap
+// account check must pass, then the embedded clip is POSTed to the real upload
+// node and deleted again.
+func VerifyDoodStream(apiKey string) ProbeResult {
+	if res := ProbeDoodStream(apiKey); !res.OK || res.Rejected || res.Quota {
+		return res
+	}
+	file, cleanup, err := writeProbeVideo()
+	if err != nil {
+		return ProbeResult{Message: err.Error()}
+	}
+	defer cleanup()
+
+	u := &DoodStreamUploader{client: probeUploadClient}
+	link, err := u.uploadFile(file, apiKey, nil)
+	if err != nil {
+		msg := probeErrText(err)
+		switch {
+		case isDoodStreamQuotaError(err):
+			return ProbeResult{Quota: true, Message: "storage quota full: " + msg}
+		case isDoodStreamAuthError(err) && !looksLikeBlockPageText(msg):
+			return ProbeResult{Rejected: true, Message: msg}
+		default:
+			return ProbeResult{Message: msg}
+		}
+	}
+	deleteProbeUpload("DoodStream", apiKey, "", link)
 	return ProbeResult{OK: true, Message: "upload verified"}
 }
 

@@ -79,6 +79,8 @@ func configFromEnv() *entity.Config {
 		MixdropEmail:           env("MIXDROP_EMAIL"),
 		MixdropToken:           or(env("MIXDROP_TOKEN"), env("MIXDROP_KEY")),
 		VidaraKey:              env("VIDARA_KEY"),
+		LuluStreamKey:          env("LULUSTREAM_KEY"),
+		DoodStreamKey:          env("DOODSTREAM_API_KEY"),
 		Domain:                 or(env("DOMAIN"), "https://www.cb.xxx/"),
 		FFmpegPath:             env("FFMPEG_PATH"),
 	}

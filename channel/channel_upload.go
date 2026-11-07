@@ -32,6 +32,18 @@ func embedURLFromLink(host, link string) string {
 			return "https://vidara.so/e/" + code
 		}
 		return link
+	case "LuluStream":
+		code := strings.TrimSuffix(link[strings.LastIndex(link, "/")+1:], ".html")
+		if code != "" {
+			return "https://lulustream.com/e/" + code
+		}
+		return link
+	case "DoodStream":
+		code := link[strings.LastIndex(link, "/")+1:]
+		if code != "" {
+			return "https://dood.to/e/" + code
+		}
+		return link
 	}
 	return ""
 }
@@ -91,6 +103,8 @@ func (ch *Channel) uploadFile(filePath string, thumbURL, spriteURL, previewURL s
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.VidaraKey,
+		cfg.LuluStreamKey,
+		cfg.DoodStreamKey,
 		ch, // Channel implements uploader.Logger
 	)
 

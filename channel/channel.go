@@ -47,14 +47,14 @@ type Channel struct {
 	// goroutine (single-threaded), so it needs no lock.
 	logPersistLast time.Time
 
-	IsOnline     bool
-	IsConnecting bool   // true during retry/reconnect, shown as "Reconnecting..." in UI
-	RoomStatus   string // public, private, group, away, offline, hidden
-	StreamedAt   int64
-	Duration     float64 // Seconds
-	Filesize     int     // Bytes
-	Sequence     int
-	FileExt      string // ".ts" or ".mp4", set per-stream
+	IsOnline        bool
+	IsConnecting    bool   // true during retry/reconnect, shown as "Reconnecting..." in UI
+	RoomStatus      string // public, private, group, away, offline, hidden
+	StreamedAt      int64
+	Duration        float64 // Seconds
+	Filesize        int     // Bytes
+	Sequence        int
+	FileExt         string // ".ts" or ".mp4", set per-stream
 	CurrentFilename string
 
 	CompressingCount int32 // atomic: number of active compression goroutines
@@ -92,27 +92,27 @@ type Channel struct {
 	mp4InitSegment []byte
 	Config         *entity.ChannelConfig
 
-	fileMu     sync.RWMutex // protects File, mp4InitSegment, Duration, Filesize, TotalDiskUsageBytes
+	fileMu sync.RWMutex // protects File, mp4InitSegment, Duration, Filesize, TotalDiskUsageBytes
 
 	// closeReason records why the current recording is ending (model offline,
 	// stream session expired, max duration/filesize rotation, pause/stop,
 	// session boundary). Set before cleanupLocked closes the file so the
 	// end-reason can be logged with the final duration.
-	closeReason string
-	profileMu  sync.Mutex
-	lastProfileScrape time.Time // when the full profile was last fetched (on-demand only)
-	monitorMu  sync.Mutex
-	monitorRunning bool
+	closeReason             string
+	profileMu               sync.Mutex
+	lastProfileScrape       time.Time // when the full profile was last fetched (on-demand only)
+	monitorMu               sync.Mutex
+	monitorRunning          bool
 	monitorRestartRequested bool
-	monitorRunID uint64
-	monitorDone chan struct{}
+	monitorRunID            uint64
+	monitorDone             chan struct{}
 
-	cleanupMu    sync.Mutex // serialises Cleanup() calls from concurrent goroutines
-	pendingFiles []pendingFile
-	pendingWg    sync.WaitGroup // tracks async pending-file finalization goroutines
-	UploadWg     sync.WaitGroup // tracks in-flight upload goroutines for graceful shutdown
-	monitorWg    sync.WaitGroup // tracks the Monitor goroutine lifetime
-	uploadSem    chan struct{}  // per-channel upload semaphore (1 at a time)
+	cleanupMu     sync.Mutex // serialises Cleanup() calls from concurrent goroutines
+	pendingFiles  []pendingFile
+	pendingWg     sync.WaitGroup // tracks async pending-file finalization goroutines
+	UploadWg      sync.WaitGroup // tracks in-flight upload goroutines for graceful shutdown
+	monitorWg     sync.WaitGroup // tracks the Monitor goroutine lifetime
+	uploadSem     chan struct{}  // per-channel upload semaphore (1 at a time)
 	PipelineQueue *PipelineQueue // ordered pipeline for thumbnails → upload → metadata → cleanup
 
 	TotalDiskUsageBytes int64 // total bytes across all recordings for this channel
@@ -134,19 +134,19 @@ type Channel struct {
 // New creates a new channel instance with the given manager and configuration.
 func New(conf *entity.ChannelConfig) *Channel {
 	ch := &Channel{
-		LogCh:           make(chan string, 256),
-		VerboseCh:       make(chan string, 256),
-		UpdateCh:        make(chan bool, 64),
-		done:            make(chan struct{}),
-		Config:          conf,
-		CancelFunc:      func() {},
-		PauseCancelFunc: func() {},
-		uploadSem:       make(chan struct{}, 1),
-		RoomStatus:      "offline",
-		RoomTitle:       conf.RoomTitle,
-		Gender:          conf.Gender,
+		LogCh:            make(chan string, 256),
+		VerboseCh:        make(chan string, 256),
+		UpdateCh:         make(chan bool, 64),
+		done:             make(chan struct{}),
+		Config:           conf,
+		CancelFunc:       func() {},
+		PauseCancelFunc:  func() {},
+		uploadSem:        make(chan struct{}, 1),
+		RoomStatus:       "offline",
+		RoomTitle:        conf.RoomTitle,
+		Gender:           conf.Gender,
 		SummaryCardImage: conf.SummaryCardImage,
-		StreamedAt:      conf.StreamedAt,
+		StreamedAt:       conf.StreamedAt,
 	}
 	ch.PipelineQueue = NewPipelineQueue(ch)
 	go ch.Publisher()
@@ -495,27 +495,27 @@ func (ch *Channel) exportInfo(includeLogs bool) *entity.ChannelInfo {
 		IsCompressing:        atomic.LoadInt32(&ch.CompressingCount) > 0,
 		AutoResumedFromPause: ch.autoResumedFromPause.Load(),
 		RoomStatus:           roomStatus,
-		Username:         ch.Config.Username,
-		Site:             siteName,
-		SiteDomain:       siteDomain,
-		LiveThumbURL:     liveThumbURL,
-		MaxDuration:      internal.FormatDuration(float64(ch.Config.MaxDuration * 60)),
-		MaxFilesize:      internal.FormatFilesize(ch.Config.MaxFilesize * 1024 * 1024),
-		StreamedAt:       streamedAt,
-		CreatedAt:        ch.Config.CreatedAt,
-		Duration:         internal.FormatDuration(duration),
-		Filesize:         internal.FormatFilesize(filesize),
-		TotalDiskUsage:   internal.FormatFilesize(int(totalDiskUsageBytes)),
-		Filename:         filename,
-		Logs:             logsCopy,
-		GlobalConfig:     server.Config,
-		UploadStatus:     uploadStatus,
-		UploadProgress:   uploadProgress,
-		UploadFilename:   uploadFilename,
-		RoomTitle:        roomTitle,
-		Gender:           gender,
-		NumViewers:       viewers,
-		SummaryCardImage: summaryCardImage,
+		Username:             ch.Config.Username,
+		Site:                 siteName,
+		SiteDomain:           siteDomain,
+		LiveThumbURL:         liveThumbURL,
+		MaxDuration:          internal.FormatDuration(float64(ch.Config.MaxDuration * 60)),
+		MaxFilesize:          internal.FormatFilesize(ch.Config.MaxFilesize * 1024 * 1024),
+		StreamedAt:           streamedAt,
+		CreatedAt:            ch.Config.CreatedAt,
+		Duration:             internal.FormatDuration(duration),
+		Filesize:             internal.FormatFilesize(filesize),
+		TotalDiskUsage:       internal.FormatFilesize(int(totalDiskUsageBytes)),
+		Filename:             filename,
+		Logs:                 logsCopy,
+		GlobalConfig:         server.Config,
+		UploadStatus:         uploadStatus,
+		UploadProgress:       uploadProgress,
+		UploadFilename:       uploadFilename,
+		RoomTitle:            roomTitle,
+		Gender:               gender,
+		NumViewers:           viewers,
+		SummaryCardImage:     summaryCardImage,
 	}
 }
 

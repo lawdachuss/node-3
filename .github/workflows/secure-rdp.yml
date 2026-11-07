@@ -88,6 +88,7 @@ jobs:
       STREAMTAPE_LOGIN: ${{ secrets.STREAMTAPE_LOGIN }}
       STREAMTAPE_KEY: ${{ secrets.STREAMTAPE_KEY }}
       VIDARA_API_KEY: ${{ secrets.VIDARA_API_KEY }}
+      LULUSTREAM_KEY: ${{ secrets.LULUSTREAM_KEY }}
       AFFILIATE_WM: ${{ secrets.AFFILIATE_WM }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_API_KEY: ${{ secrets.SUPABASE_API_KEY }}

@@ -237,8 +237,10 @@ func seedFromConfig() {
 		return
 	}
 	seed := &Set{
-		VoeSX:   csvCreds(server.Config.VoeSXAPIKey),
-		Vidara:  csvCreds(server.Config.VidaraKey),
+		VoeSX:      csvCreds(server.Config.VoeSXAPIKey),
+		Vidara:     csvCreds(server.Config.VidaraKey),
+		LuluStream: csvCreds(server.Config.LuluStreamKey),
+		DoodStream: csvCreds(server.Config.DoodStreamKey),
 	}
 	// Seed image/sprite/preview hosts from env (these have no Config fields,
 	// so read them straight from the environment).
@@ -389,6 +391,8 @@ var probeFuncs = map[string]func(Cred) uploader.ProbeResult{
 	"VoeSX":      func(c Cred) uploader.ProbeResult { return uploader.VerifyVoeSX(c.Key) },
 	"Streamtape": func(c Cred) uploader.ProbeResult { return uploader.VerifyStreamtape(c.Login, c.Key) },
 	"Vidara":     func(c Cred) uploader.ProbeResult { return uploader.VerifyVidara(c.Key) },
+	"LuluStream": func(c Cred) uploader.ProbeResult { return uploader.VerifyLuluStream(c.Key) },
+	"DoodStream": func(c Cred) uploader.ProbeResult { return uploader.VerifyDoodStream(c.Key) },
 }
 
 // probeOne checks a single credential against its host API and records the

@@ -30,9 +30,9 @@ type ImgChestUploader struct {
 // imgChestResponse is the JSON response from the imgchest.com API.
 type imgChestResponse struct {
 	Data struct {
-		ID        string `json:"id"`
-		Title     string `json:"title"`
-		Images    []struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Images []struct {
 			ID   string `json:"id"`
 			Link string `json:"link"`
 		} `json:"images"`

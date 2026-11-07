@@ -201,16 +201,18 @@ func sanitizeName(name string) string {
 // configFromEnv mirrors cmd/uploadtest's minimal config wiring.
 func configFromEnv() *entity.Config {
 	cfg := &entity.Config{
-		SupabaseURL:    env("SUPABASE_URL"),
-		SupabaseAPIKey: env("SUPABASE_API_KEY"),
-		VoeSXAPIKey:    env("VOESX_API_KEY"),
+		SupabaseURL:     env("SUPABASE_URL"),
+		SupabaseAPIKey:  env("SUPABASE_API_KEY"),
+		VoeSXAPIKey:     env("VOESX_API_KEY"),
 		StreamtapeLogin: env("STREAMTAPE_LOGIN"),
-		StreamtapeKey:  or(env("STREAMTAPE_KEY"), env("STREAMTAPE_API_KEY")),
-		MixdropEmail:   env("MIXDROP_EMAIL"),
-		MixdropToken:   or(env("MIXDROP_TOKEN"), env("MIXDROP_KEY")),
-		VidaraKey:      env("VIDARA_KEY"),
-		Domain:         or(env("DOMAIN"), "https://www.cb.xxx/"),
-		FFmpegPath:     env("FFMPEG_PATH"),
+		StreamtapeKey:   or(env("STREAMTAPE_KEY"), env("STREAMTAPE_API_KEY")),
+		MixdropEmail:    env("MIXDROP_EMAIL"),
+		MixdropToken:    or(env("MIXDROP_TOKEN"), env("MIXDROP_KEY")),
+		VidaraKey:       env("VIDARA_KEY"),
+		LuluStreamKey:   env("LULUSTREAM_KEY"),
+		DoodStreamKey:   env("DOODSTREAM_API_KEY"),
+		Domain:          or(env("DOMAIN"), "https://www.cb.xxx/"),
+		FFmpegPath:      env("FFMPEG_PATH"),
 	}
 	if cfg.FFmpegPath != "" {
 		config.SetFFmpegPath(cfg.FFmpegPath)

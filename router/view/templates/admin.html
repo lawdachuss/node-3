@@ -882,6 +882,7 @@
                                 <td class="mono" style="font-size:10px">{{ timefmt .LastChecked }}</td>
                                 <td class="uk-msg">{{ .Message }}</td>
                                 <td style="white-space:nowrap">
+                                    <button type="button" class="btn-action" data-act="edit" title="Edit this key in place — the host's other keys are preserved">Edit</button>
                                     <button type="button" class="btn-action" data-act="probe">Test</button>
                                     <button type="button" class="btn-action btn-action-del" data-act="remove">✕</button>
                                 </td>
@@ -1954,6 +1955,9 @@ function channelAction(action, username) {
 // the add-form inputs live OUTSIDE the tbody so a poll never wipes typing.
 
 var _ukTimer = null;
+// While a row is being edited inline, polling and re-rendering are paused so
+// the operator's half-typed credential is never wiped by a background refresh.
+var _ukEditing = null; // { host: string, fp: string } | null
 (function() { startUploadKeyPoll(); })();
 
 function startUploadKeyPoll() {
@@ -1963,6 +1967,7 @@ function startUploadKeyPoll() {
 }
 
 function pollUploadKeys() {
+    if (_ukEditing) return;
     fetch('/api/upload_keys')
         .then(function(r) { return r.json(); })
         .then(function(data) { if (data && data.hosts) updateUploadKeys(data); })
@@ -2000,6 +2005,7 @@ function updateUploadKeys(data) {
     (data.hosts || []).forEach(function(hv) {
         var hostEl = document.querySelector('.uk-host[data-host="' + hv.host + '"]');
         if (!hostEl) return;
+        if (_ukEditing && _ukEditing.host === hv.host) return;
         var html = '';
         (hv.keys || []).forEach(function(k) {
             total++;
@@ -2009,6 +2015,7 @@ function updateUploadKeys(data) {
                 + '<td class="mono" style="font-size:10px">' + ukFmtTime(k.last_checked) + '</td>'
                 + '<td class="uk-msg">' + ukEsc(k.message) + '</td>'
                 + '<td style="white-space:nowrap">'
+                + '<button type="button" class="btn-action" data-act="edit" title="Edit this key in place — the host\'s other keys are preserved">Edit</button> '
                 + '<button type="button" class="btn-action" data-act="probe">Test</button> '
                 + '<button type="button" class="btn-action btn-action-del" data-act="remove">✕</button>'
                 + '</td></tr>';
@@ -2050,7 +2057,52 @@ document.addEventListener('click', function(e) {
     var hostEl = btn.closest('.uk-host');
     if (!hostEl) return;
     var host = hostEl.getAttribute('data-host');
-    if (act === 'add') {
+    if (act === 'edit') {
+        if (_ukEditing) return;
+        var erow = btn.closest('tr');
+        var efp = erow && erow.getAttribute('data-fp');
+        if (!efp) return;
+        var editFields = '';
+        hostEl.querySelectorAll('.uk-add [data-field]').forEach(function(inp) {
+            editFields += '<input class="uk-input" data-field="' + ukEsc(inp.getAttribute('data-field')) + '"'
+                + ' type="' + ukEsc(inp.getAttribute('type') || 'text') + '"'
+                + ' placeholder="' + ukEsc(inp.getAttribute('placeholder') || '') + '" />';
+        });
+        _ukEditing = { host: host, fp: efp };
+        erow.innerHTML = '<td colspan="5"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+            + editFields
+            + '<button type="button" class="btn-action" data-act="edit-save">Save</button>'
+            + '<button type="button" class="btn-action" data-act="edit-cancel">Cancel</button>'
+            + '<span class="uk-note">Re-enter every field for this account; the host\'s other keys are preserved.</span>'
+            + '</div></td>';
+    } else if (act === 'edit-save') {
+        var srow = btn.closest('tr');
+        var sfp = _ukEditing && _ukEditing.fp;
+        if (!srow || !sfp) return;
+        var sfields = {};
+        srow.querySelectorAll('[data-field]').forEach(function(inp) {
+            sfields[inp.getAttribute('data-field')] = inp.value.trim();
+        });
+        btn.disabled = true;
+        ukPost('/api/upload_keys/edit', {
+            host: host,
+            fingerprint: sfp,
+            key: sfields.key || '',
+            login: sfields.login || '',
+            email: sfields.email || '',
+            token: sfields.token || ''
+        }).then(function(d) {
+            if (d.ok) {
+                _ukEditing = null;
+                updateUploadKeys(d);
+                setTimeout(pollUploadKeys, 3000); // probe result lands shortly after
+            }
+        }).catch(function(err) { alert('Edit failed: ' + err); })
+          .finally(function() { btn.disabled = false; });
+    } else if (act === 'edit-cancel') {
+        _ukEditing = null;
+        pollUploadKeys();
+    } else if (act === 'add') {
         var fields = {};
         hostEl.querySelectorAll('.uk-add [data-field]').forEach(function(inp) {
             fields[inp.getAttribute('data-field')] = inp.value.trim();

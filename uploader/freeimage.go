@@ -50,9 +50,9 @@ type freeImageHostResponse struct {
 		Code    int    `json:"code"`
 	} `json:"success"`
 	Image struct {
-		URL      string `json:"url"`
+		URL       string `json:"url"`
 		URLViewer string `json:"url_viewer"`
-		Thumb    struct {
+		Thumb     struct {
 			URL string `json:"url"`
 		} `json:"thumb"`
 		Medium struct {

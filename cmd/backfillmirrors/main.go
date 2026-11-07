@@ -229,10 +229,10 @@ func main() {
 		hasPreviewRow := perr == nil && prevImg != nil
 
 		type asset struct {
-			name      string
-			url       string
-			field     string // "thumbnail", "sprite", "preview"
-			isCatbox  bool   // primary URL is the Catbox original — reuse it as the Catbox mirror instead of re-uploading a duplicate copy
+			name     string
+			url      string
+			field    string // "thumbnail", "sprite", "preview"
+			isCatbox bool   // primary URL is the Catbox original — reuse it as the Catbox mirror instead of re-uploading a duplicate copy
 		}
 		var assets []asset
 
@@ -475,8 +475,8 @@ func downloadThumbnail(imgURL, filename string) (string, error) {
 
 func configFromEnv() *entity.Config {
 	return &entity.Config{
-		SupabaseURL:           env("SUPABASE_URL"),
-		SupabaseAPIKey:        env("SUPABASE_API_KEY"),
+		SupabaseURL:            env("SUPABASE_URL"),
+		SupabaseAPIKey:         env("SUPABASE_API_KEY"),
 		SupabaseServiceRoleKey: env("SUPABASE_SERVICE_ROLE_KEY"),
 	}
 }

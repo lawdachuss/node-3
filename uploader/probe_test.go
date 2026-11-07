@@ -220,3 +220,121 @@ func TestProbeStreamtapeClassifiesResults(t *testing.T) {
 		})
 	}
 }
+
+func TestProbeDoodStreamClassifiesResults(t *testing.T) {
+	cases := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantOK     bool
+		wantReject bool
+		wantQuota  bool
+	}{
+		{
+			name: "healthy",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"msg":"OK","status":200,"result":"https://s1.example"}`)
+			},
+			wantOK: true,
+		},
+		{
+			name: "invalid key inside 200 body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"status":400,"msg":"Invalid key"}`)
+			},
+			wantReject: true,
+		},
+		{
+			name: "invalid key as http 400",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"status":400,"msg":"Invalid key"}`)
+			},
+			wantReject: true,
+		},
+		{
+			name: "storage full is quota, not healthy",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"status":400,"msg":"Not enough storage space"}`)
+			},
+			wantQuota: true,
+		},
+		{
+			name: "host error undecided",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(w, `{"error":"maintenance"}`)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+			swapBase(t, &doodStreamAPIBase, srv.URL)
+
+			got := ProbeDoodStream("test-key")
+			if got.OK != tc.wantOK || got.Rejected != tc.wantReject || got.Quota != tc.wantQuota {
+				t.Errorf("got %+v, want OK=%v Rejected=%v Quota=%v", got, tc.wantOK, tc.wantReject, tc.wantQuota)
+			}
+		})
+	}
+}
+
+func TestProbeLuluStreamClassifiesResults(t *testing.T) {
+	cases := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantOK     bool
+		wantReject bool
+		wantQuota  bool
+	}{
+		{
+			name: "healthy",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"msg":"OK","status":200,"result":"https://s1.example"}`)
+			},
+			wantOK: true,
+		},
+		{
+			name: "invalid key inside 200 body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"status":400,"msg":"Invalid key"}`)
+			},
+			wantReject: true,
+		},
+		{
+			name: "invalid key as http 400",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"status":400,"msg":"Invalid key"}`)
+			},
+			wantReject: true,
+		},
+		{
+			name: "storage full is quota, not healthy",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"status":400,"msg":"Not enough storage space"}`)
+			},
+			wantQuota: true,
+		},
+		{
+			name: "host error undecided",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(w, `{"error":"maintenance"}`)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+			swapBase(t, &luluStreamAPIBase, srv.URL)
+
+			got := ProbeLuluStream("test-key")
+			if got.OK != tc.wantOK || got.Rejected != tc.wantReject || got.Quota != tc.wantQuota {
+				t.Errorf("got %+v, want OK=%v Rejected=%v Quota=%v", got, tc.wantOK, tc.wantReject, tc.wantQuota)
+			}
+		})
+	}
+}

@@ -351,8 +351,8 @@ type imageUploadSession struct {
 	primary chan ImageUploadResult // first preferred-host success
 	any     chan ImageUploadResult // first other-host success
 
-	mu   sync.Mutex
-	all  []ImageUploadResult // every job's outcome, one per host
+	mu  sync.Mutex
+	all []ImageUploadResult // every job's outcome, one per host
 }
 
 // primaryHostWait is how long WaitForPrimary waits for a preferred host

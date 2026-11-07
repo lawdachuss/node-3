@@ -112,10 +112,10 @@ func TestResolveWatchEnd(t *testing.T) {
 			wantClose: "channel went offline",
 		},
 		{
-			name:      "403 + probe canceled -> pass through, no reason",
-			watchErr:  mediaForbidden,
-			fetchErr:  context.Canceled,
-			wantErr:   mediaForbidden,
+			name:     "403 + probe canceled -> pass through, no reason",
+			watchErr: mediaForbidden,
+			fetchErr: context.Canceled,
+			wantErr:  mediaForbidden,
 		},
 		{
 			name:      "403 + probe fails transiently -> fast reconnect, not bench",

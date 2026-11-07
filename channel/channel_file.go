@@ -1177,19 +1177,19 @@ func CleanupOrphanedFiles() {
 					recoveryLogf(vInfo.name, "recovery: mux failed for %s: %v — uploading video-only", stem, err)
 					// Fall back to uploading just the video track
 					if !MaybeDeferToPending(vInfo.path) && !IsUploadInFlight(vInfo.path) {
-					thumb := GenerateThumbnailForFile(vInfo.path)
-					thumbURL := thumb.ThumbURL
-					spriteURL := thumb.SpriteURL
-					previewURL := thumb.PreviewURL
-					// Keep the local file unless the upload fully completed: a
-					// deferred save (missing thumbnail) or failed upload must
-					// leave the source for the next scan's retry.
-					if UploadOrphanedFile(vInfo.path, thumbURL, spriteURL, previewURL) {
-						DeleteSidecarFiles(vInfo.path)
-						_ = os.Remove(vInfo.path)
+						thumb := GenerateThumbnailForFile(vInfo.path)
+						thumbURL := thumb.ThumbURL
+						spriteURL := thumb.SpriteURL
+						previewURL := thumb.PreviewURL
+						// Keep the local file unless the upload fully completed: a
+						// deferred save (missing thumbnail) or failed upload must
+						// leave the source for the next scan's retry.
+						if UploadOrphanedFile(vInfo.path, thumbURL, spriteURL, previewURL) {
+							DeleteSidecarFiles(vInfo.path)
+							_ = os.Remove(vInfo.path)
+						}
 					}
-				}
-				return
+					return
 				}
 
 				// Delete source sidecars
@@ -1613,6 +1613,8 @@ func configuredUploadHosts() []string {
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.VidaraKey,
+		cfg.LuluStreamKey,
+		cfg.DoodStreamKey,
 		nil,
 	)
 	return upl.AvailableHosts()
@@ -1695,6 +1697,8 @@ func uploadOrphanedFile(filePath, thumbURL, spriteURL, previewURL string, thumbM
 		cfg.MixdropEmail,
 		cfg.MixdropToken,
 		cfg.VidaraKey,
+		cfg.LuluStreamKey,
+		cfg.DoodStreamKey,
 		nil, // no logger for orphan recovery
 	)
 
@@ -1988,7 +1992,7 @@ func recoverOrphanMetadataFromJournal(filePath, filename, fileHash string) (bool
 	dur, _ := VideoDurationSeconds(filePath)
 
 	var embedURL string
-	for _, host := range []string{"VOE.sx", "Vidara", "Mixdrop", "Streamtape"} {
+	for _, host := range []string{"VOE.sx", "LuluStream", "DoodStream", "Vidara", "Mixdrop", "Streamtape"} {
 		if link, ok := links[host]; ok && link != "" {
 			embedURL = embedURLFromLink(host, link)
 			if embedURL != "" {

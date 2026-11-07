@@ -48,4 +48,3 @@ func TestPauseReasonStickyManual(t *testing.T) {
 		t.Fatalf("PauseReason after fresh handoff = %q, want %q", got, entity.PauseReasonHandoff)
 	}
 }
-

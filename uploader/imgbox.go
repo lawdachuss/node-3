@@ -68,16 +68,16 @@ type ImgboxUploader struct {
 
 // imgboxTokenResponse is the JSON response from the token generate endpoint.
 type imgboxTokenResponse struct {
-	TokenID      string `json:"token_id"`
-	TokenSecret  string `json:"token_secret"`
-	GalleryID    string `json:"gallery_id"`
+	TokenID       string `json:"token_id"`
+	TokenSecret   string `json:"token_secret"`
+	GalleryID     string `json:"gallery_id"`
 	GallerySecret string `json:"gallery_secret"`
 }
 
 // imgboxUploadResponse is the JSON response from the upload process endpoint.
 type imgboxUploadResponse struct {
 	Files []struct {
-		OriginalURL string `json:"original_url"`
+		OriginalURL  string `json:"original_url"`
 		ThumbnailURL string `json:"thumbnail_url"`
 		URL          string `json:"url"`
 	} `json:"files"`
@@ -295,7 +295,7 @@ func (u *ImgboxUploader) uploadFile(filePath, csrfToken string, token *imgboxTok
 	mw.WriteField("token_secret", token.TokenSecret)
 	mw.WriteField("gallery_id", token.GalleryID)
 	mw.WriteField("gallery_secret", token.GallerySecret)
-	mw.WriteField("content_type", "2")  // adult
+	mw.WriteField("content_type", "2")      // adult
 	mw.WriteField("thumbnail_size", "200r") // 200px, keep aspect ratio
 	mw.WriteField("comments_enabled", "0")
 

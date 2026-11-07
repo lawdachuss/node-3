@@ -1,4 +1,4 @@
-﻿package site
+package site
 
 import (
 	"bytes"
@@ -27,14 +27,14 @@ func NewStripchatSite() *StripchatSite {
 // or v2 cam API response. The two sources expose the same model object, so a
 // single shared struct is used for both.
 type scModelInfo struct {
-	Username           string   `json:"username"`
-	Status             string   `json:"status"`
-	IsLive             bool     `json:"isLive"`
-	IsOnline           bool     `json:"isOnline"`
-	BroadcastGender    string   `json:"broadcastGender"`
-	Gender             string   `json:"gender"`
-	PreviewUrlThumbBig string   `json:"previewUrlThumbBig"`
-	SnapshotTimestamp  int64    `json:"snapshotTimestamp"`
+	Username           string `json:"username"`
+	Status             string `json:"status"`
+	IsLive             bool   `json:"isLive"`
+	IsOnline           bool   `json:"isOnline"`
+	BroadcastGender    string `json:"broadcastGender"`
+	Gender             string `json:"gender"`
+	PreviewUrlThumbBig string `json:"previewUrlThumbBig"`
+	SnapshotTimestamp  int64  `json:"snapshotTimestamp"`
 	// Tag-bearing profile fields (see stripchatTags). The v2 API exposes all of
 	// these; the legacy SSR page state exposes them on the same model object.
 	Specifics        []string `json:"specifics"`
@@ -73,7 +73,7 @@ type scV2CamResponse struct {
 	// sometimes an empty array (e.g. "cam": [] for an offline/unavailable model).
 	// A concrete struct here made json.Unmarshal fail with "cannot unmarshal
 	// array into Go struct field scV2CamResponse.cam of type struct {...}".
-	Cam json.RawMessage `json:"cam"`
+	Cam   json.RawMessage `json:"cam"`
 	Error *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`

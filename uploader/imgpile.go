@@ -66,8 +66,8 @@ type ImgPileUploader struct {
 // imgPileResponse is the JSON response from the imgpile.com API.
 type imgPileResponse struct {
 	Data struct {
-		Slug   string `json:"slug"`
-		URLs   struct {
+		Slug string `json:"slug"`
+		URLs struct {
 			Original string `json:"original"`
 			Thumb    string `json:"thumb"`
 		} `json:"urls"`

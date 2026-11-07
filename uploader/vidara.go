@@ -36,7 +36,7 @@ func NewVidaraUploader(apiKey string) *VidaraUploader {
 	ring := buildRingFromEnv("VIDARA_KEY", apiKey)
 	ring.host = "Vidara"
 	return &VidaraUploader{
-		keys:   ring,
+		keys: ring,
 		client: &http.Client{
 			Timeout: 120 * time.Minute, // Long timeout for large video uploads
 			Transport: &http.Transport{
@@ -279,10 +279,10 @@ func (u *VidaraUploader) uploadFile(filePath, key string, progress ProgressFunc)
 	//   * {"filecode":"AbC123xY", "url":"https://vidara.so/v/AbC123xY"}  (docs)
 	//   * {"filecode":"AbC123xY", "url":"https://vidara.to/e/AbC123xY"}  (embed in url)
 	//   * {"filecode":"https://vidara.to/e/AbC123xY", "url":""}          (embed in filecode)// So blindly returning uploadResp.URL (or prefixing vidara.so/v/ onto
-// Filecode) produced mangled links like
-// "https://vidara.so/v/https://vidara.to/e/CODE". Extract the trailing
-// file code from whichever field carries it and build the canonical
-// embed link instead.
+	// Filecode) produced mangled links like
+	// "https://vidara.so/v/https://vidara.to/e/CODE". Extract the trailing
+	// file code from whichever field carries it and build the canonical
+	// embed link instead.
 	code := vidaraFileCode(uploadResp.Filecode)
 	if code == "" {
 		code = vidaraFileCode(uploadResp.URL)

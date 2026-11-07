@@ -19,9 +19,9 @@ import (
 // When a CatboxProxyURL is configured, uploads are routed through
 // the proxy Cloudflare Worker instead of going directly to catbox.moe.
 type CatboxUploader struct {
-	client    *http.Client
-	proxyURL  string
-	userHash  string
+	client   *http.Client
+	proxyURL string
+	userHash string
 }
 
 // NewCatboxUploader creates a new Catbox.moe uploader.

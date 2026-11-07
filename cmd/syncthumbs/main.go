@@ -58,8 +58,8 @@ func main() {
 	log.Printf("recordings loaded: %d", len(recordings))
 
 	type fix struct {
-		filename                 string
-		thumb, sprite, preview   string
+		filename               string
+		thumb, sprite, preview string
 	}
 	var fixes []fix
 	for i := range recordings {
@@ -111,17 +111,19 @@ func main() {
 // configFromEnv mirrors backfillthumbs' minimal config wiring.
 func configFromEnv() *entity.Config {
 	cfg := &entity.Config{
-		SupabaseURL:           env("SUPABASE_URL"),
-		SupabaseAPIKey:        env("SUPABASE_API_KEY"),
+		SupabaseURL:            env("SUPABASE_URL"),
+		SupabaseAPIKey:         env("SUPABASE_API_KEY"),
 		SupabaseServiceRoleKey: env("SUPABASE_SERVICE_ROLE_KEY"),
-		VoeSXAPIKey:           env("VOESX_API_KEY"),
-		StreamtapeLogin:       env("STREAMTAPE_LOGIN"),
-		StreamtapeKey:         or(env("STREAMTAPE_KEY"), env("STREAMTAPE_API_KEY")),
-		MixdropEmail:          env("MIXDROP_EMAIL"),
-		MixdropToken:          or(env("MIXDROP_TOKEN"), env("MIXDROP_KEY")),
-		VidaraKey:             env("VIDARA_KEY"),
-		Domain:                or(env("DOMAIN"), "https://www.cb.xxx/"),
-		FFmpegPath:            env("FFMPEG_PATH"),
+		VoeSXAPIKey:            env("VOESX_API_KEY"),
+		StreamtapeLogin:        env("STREAMTAPE_LOGIN"),
+		StreamtapeKey:          or(env("STREAMTAPE_KEY"), env("STREAMTAPE_API_KEY")),
+		MixdropEmail:           env("MIXDROP_EMAIL"),
+		MixdropToken:           or(env("MIXDROP_TOKEN"), env("MIXDROP_KEY")),
+		VidaraKey:              env("VIDARA_KEY"),
+		LuluStreamKey:          env("LULUSTREAM_KEY"),
+		DoodStreamKey:          env("DOODSTREAM_API_KEY"),
+		Domain:                 or(env("DOMAIN"), "https://www.cb.xxx/"),
+		FFmpegPath:             env("FFMPEG_PATH"),
 	}
 	return cfg
 }
